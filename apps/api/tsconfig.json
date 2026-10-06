@@ -1,0 +1,24 @@
+// Configurazione del compilatore TypeScript per il backend e i suoi test.
+// Non esegue il codice: stabilisce come controllarlo e come tradurlo.
+// tsconfig accetta commenti (JSON con commenti), a differenza di package.json.
+{
+  "compilerOptions": {
+    // Versione del JavaScript prodotto: funzionalità dello standard ES2022.
+    "target": "ES2022",
+    // Formato dei moduli compatibile con la configurazione Jest di questa fase.
+    "module": "CommonJS",
+    // Abilita controlli rigorosi, per esempio su tipi impliciti e valori null.
+    "strict": true,
+    // Facilita import compatibili tra moduli CommonJS e sintassi ES.
+    "esModuleInterop": true,
+    // Impedisce riferimenti allo stesso file con maiuscole/minuscole diverse.
+    "forceConsistentCasingInFileNames": true,
+    // Evita il controllo interno dei file di dichiarazione delle librerie;
+    // il nostro codice continua a essere controllato.
+    "skipLibCheck": true,
+    // Rende disponibili i tipi delle funzioni globali di Jest nei file inclusi.
+    "types": ["jest"]
+  },
+  // ** indica anche sottocartelle; *.ts seleziona file TypeScript.
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "nutritrack",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "typecheck": "pnpm --dir apps/api typecheck",
+    "test": "pnpm --dir apps/api test",
+    "check": "pnpm typecheck && pnpm test"
+  }
+}

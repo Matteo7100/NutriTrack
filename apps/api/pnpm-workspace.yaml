@@ -1,0 +1,8 @@
+# Configurazione pnpm generata durante l'installazione e annotata da noi.
+# Decide se eseguire script di build forniti da dipendenze esterne.
+# Non definisce i moduli di NutriTrack e non configura i test.
+allowBuilds:
+  # false impedisce gli script di questi pacchetti, non il loro download.
+  # Il test della fase 0 funziona senza questi build opzionali.
+  '@parcel/watcher': false
+  unrs-resolver: false

@@ -1,0 +1,25 @@
+# Regole per Git: escludono file locali o generati dal versionamento.
+# Non cancellano file e non interrompono il tracciamento di file già versionati.
+# Un pattern senza percorso iniziale vale anche nelle sottocartelle.
+# Dipendenze scaricate: si ricreano dai manifest e dal lockfile.
+node_modules/
+# Cache di pnpm: copia locale dei pacchetti, non codice del progetto.
+.pnpm-store/
+# Output generati dalle verifiche e dalla compilazione.
+# coverage/ contiene eventuali report sulla copertura dei test.
+coverage/
+# dist/ contiene eventuale JavaScript compilato.
+dist/
+# Configurazioni locali: non includere credenziali nella repository.
+.env
+# * corrisponde a qualsiasi suffisso, per esempio .env.local.
+.env.*
+# ! è un'eccezione: un modello senza segreti può essere versionato.
+!.env.example
+
+# Riferimenti sincronizzati del corso e istruzioni locali del mirror ChatGPT.
+# Non fanno parte del codice o della documentazione prodotta per NutriTrack.
+/sources/
+/AGENTS.md
+/.codex/
+/.agents/
