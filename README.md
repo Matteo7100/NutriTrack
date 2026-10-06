@@ -1,4 +1,5 @@
 # NutriTrack
+Fase 2 completata: [nuova versione e conflitto da base obsoleta](docs/increments/phase-02.md). `pnpm check`: controllo tipi e 17 test complessivi.
 Fase 1 completata: [risoluzione temporale spiegata](docs/increments/phase-01.md). `pnpm check`: controllo tipi e 9 test complessivi.
 Fase 0: [guida pratica e comandi](docs/increments/phase-00.md). Per verificare dalla cartella principale: `pnpm check` con Node e pnpm disponibili nel terminale. Nessun server applicativo ancora presente.
 Per seguire la produzione del codice: [procedura di sviluppo guidato](docs/development-workflow.md). Implementazione per piccoli incrementi spiegati e verificati, con pausa tra un incremento e il successivo.
