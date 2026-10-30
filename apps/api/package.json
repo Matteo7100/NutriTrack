@@ -4,9 +4,30 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/composition/bootstrap.js",
+    "start:dev": "tsx src/composition/bootstrap.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx src/composition/seed.ts",
+    "account:create": "tsx src/composition/account-create.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.1.6",
+    "@nestjs/core": "11.1.6",
+    "@nestjs/platform-express": "11.1.6",
+    "@prisma/client": "6.19.0",
+    "dotenv": "16.6.1",
+    "express": "5.1.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@types/express": "5.0.3",
+    "@types/node": "24.10.0",
+    "prisma": "6.19.0",
+    "tsx": "4.20.6",
     "@types/jest": "^30.0.0",
     "jest": "^30.0.0",
     "ts-jest": "^29.4.0",

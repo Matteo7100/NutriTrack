@@ -1,4 +1,5 @@
 # Decisioni prima dell'implementazione
+Archivio della chiusura delle decisioni iniziali. Stato corrente del completamento: [DECISION_SUMMARY](DECISION_SUMMARY.md) e ADR-025..028. Le proposte confermate sotto non sono richieste nuovamente all'utente.
 Data: 2026-10-05. Stack e repository confermati dall'utente. Privacy, sharing storico, associazione e scope offline confermati dall'utente; peso iniziale, attivazione immediata, rinvio correzioni e nuova scelta sharing al cambio Nutritionist sono stati confermati nella seconda risposta.
 
 ## Scelte di prodotto confermate

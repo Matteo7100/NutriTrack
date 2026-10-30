@@ -17,7 +17,9 @@
     // il nostro codice continua a essere controllato.
     "skipLibCheck": true,
     // Rende disponibili i tipi delle funzioni globali di Jest nei file inclusi.
-    "types": ["jest"]
+    "types": ["jest", "node"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   // ** indica anche sottocartelle; *.ts seleziona file TypeScript.
   "include": ["src/**/*.ts", "tests/**/*.ts"]

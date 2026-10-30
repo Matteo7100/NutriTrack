@@ -1,4 +1,5 @@
 # Requirements — Design Baseline v1
+Stato corrente: implementazione e criteri di verifica in [TRACEABILITY](TRACEABILITY.md); decisioni successive in [DECISION_SUMMARY](DECISION_SUMMARY.md). I paragrafi «decisioni aperte» sotto descrivono la prima baseline e vanno letti con i successivi raffinamenti, non come riapertura delle scelte già confermate.
 Fonte: prima fase fornita dall'utente il 2026-10-05, integrata con decisioni successive. Identificativi originali conservati.
 
 ## Project scope

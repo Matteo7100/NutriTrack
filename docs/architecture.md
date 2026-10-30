@@ -1,4 +1,5 @@
 # Architecture
+Per la descrizione dell'implementazione completata consultare [PROFESSOR_GUIDE](PROFESSOR_GUIDE.md), [DECISION_SUMMARY](DECISION_SUMMARY.md) e ADR-025..028. Il modello concettuale e i contratti sotto conservano la progettazione iniziale; i dettagli prima aperti sono stati raffinati senza introdurre nuove feature.
 ## Domain model
 Modello concettuale recuperato; non è uno schema del database.
 

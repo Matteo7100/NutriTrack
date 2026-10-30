@@ -1,0 +1,18 @@
+# PostgreSQL per la demo locale: porta esposta solo sul loopback.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nutritrack
+      POSTGRES_PASSWORD: nutritrack_local
+      POSTGRES_DB: nutritrack
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - nutritrack-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nutritrack"]
+      interval: 3s
+      retries: 20
+volumes:
+  nutritrack-data:

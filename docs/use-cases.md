@@ -1,4 +1,5 @@
 # Use cases
+Stato corrente del completamento: [TRACEABILITY](TRACEABILITY.md) e [RUNBOOK](RUNBOOK.md). I punti inizialmente aperti nei flussi sono raffinati da ADR-021..028: default sharing false, sincronizzazione idempotente, privacy e dati reali controllati dal server.
 Catalogo originale fornito dall'utente, raffinato dall'analisi successiva. Versioning non è un use case autonomo: è comportamento obbligatorio di UC-09. UC-01 è condiviso dai due ruoli.
 
 ## Catalogo e tracciabilità

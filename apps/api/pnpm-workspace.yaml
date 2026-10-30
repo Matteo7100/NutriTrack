@@ -4,5 +4,12 @@
 allowBuilds:
   # false impedisce gli script di questi pacchetti, non il loro download.
   # Il test della fase 0 funziona senza questi build opzionali.
+  '@nestjs/core': false
   '@parcel/watcher': false
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
   unrs-resolver: false
+# Gli script usano le dipendenze già installate: install:all è un passo separato.
+verifyDepsBeforeRun: false
