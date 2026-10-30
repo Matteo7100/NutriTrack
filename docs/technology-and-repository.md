@@ -1,4 +1,5 @@
 # Scelta technology stack e repository
+Aggiornamento 30 ottobre 2026: stack confermato e impiegato nell'implementazione. Repository, persistenza, sessioni e offline sono descritti in [DECISION_SUMMARY](DECISION_SUMMARY.md), ADR-025..028 e [RUNBOOK](RUNBOOK.md). Le alternative e i gate sotto sono la storia della selezione, non il piano corrente.
 Stato: stack e struttura confermati dall'utente il 2026-10-05 (ADR-020); nessun pacchetto installato o skeleton creato.
 
 ## Criteri

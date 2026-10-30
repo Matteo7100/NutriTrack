@@ -1,0 +1,5 @@
+allowBuilds:
+  # Necessario al bundler Vite; build esplicitamente consentita.
+  esbuild: true
+# Installazione esplicita dal lockfile, mai download impliciti durante i test.
+verifyDepsBeforeRun: false

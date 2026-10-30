@@ -1,4 +1,5 @@
 # Sviluppo guidato a piccoli incrementi
+Aggiornamento 30 ottobre 2026: l'utente ha richiesto il completamento integrato del progetto (ADR-028). Non si applica più la pausa obbligatoria prima di ciascun incremento; restano spiegazioni iniziali nei file, commenti didattici e documentazione persistente.
 Preferenza esplicita dell'utente, 2026-10-05. Non generare l'intera applicazione in una volta.
 
 ## Strumenti

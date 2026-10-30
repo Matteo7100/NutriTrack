@@ -1,4 +1,5 @@
 # Architecture Decision Records
+Riepilogo corrente: [DECISION_SUMMARY](../DECISION_SUMMARY.md). Le ADR nuove raffinano la baseline senza cancellarne la storia.
 
 ADR-001 fornita dall'utente; ADR-002..019 recuperate dalla conversazione. Tutte appartengono alla Design Baseline v1. Data di materializzazione: 2026-10-05; non attribuiamo retroattivamente una data di approvazione.
 
@@ -31,3 +32,7 @@ Ogni nuova decisione deve riportare contesto, decisione, motivazione, conseguenz
 
 - [ADR-023 — Scope iniziale e cambio Nutritionist](ADR-023.md)
 - [ADR-024 — Auth, persistenza e test](ADR-024.md)
+- [ADR-025 — Persistenza per modulo e Unit of Work](ADR-025.md)
+- [ADR-026 — Provisioning account e sessioni](ADR-026.md)
+- [ADR-027 — Offline personale e riconciliazione](ADR-027.md)
+- [ADR-028 — Completamento e documentazione dell'esame](ADR-028.md)

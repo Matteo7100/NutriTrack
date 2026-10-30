@@ -64,76 +64,153 @@ export interface PublishVersionResult {
   readonly versions: ReadonlyArray<MealPlanVersionPeriod>;
 }
 
+/**
+ * GUIDA ALLA FUNZIONE
+ * Esempio: P1 ha v2 chiusa e v3 aperta; la richiesta crea v4 partendo da v3.
+ * Risultato: [v2 invariata, copia di v3 chiusa, nuova v4 aperta].
+ * Prima controlliamo gli input; solo dopo costruiamo il risultato.
+ * throw interrompe l'operazione: se un controllo fallisce non si arriva al return.
+ * Nessun oggetto ricevuto viene modificato o salvato in questa funzione.
+ */
+// export permette di importare la funzione da altri file; function la dichiara.
 export function publishNewVersion(
+  // Primo parametro: elenco dei periodi temporali forniti dal chiamante.
+  // ReadonlyArray<T> ammette elementi di tipo T, ma vieta push/splice sull'array.
+  // I campi del nostro tipo sono readonly: protezione TypeScript, non freeze runtime.
   versions: ReadonlyArray<MealPlanVersionPeriod>,
+  // Secondo parametro: oggetto contenente Patient, base, nuovo ID e attivazione.
   request: PublishVersionRequest,
+  // Dopo i parametri, : PublishVersionResult indica il tipo dell'oggetto restituito.
 ): PublishVersionResult {
-  // Destrutturazione: crea quattro costanti con i campi omonimi di request.
+  // 1. ESTRAZIONE DELLA RICHIESTA
+  // Destrutturazione: equivale a const patientId = request.patientId, ecc.
+  // const impedisce di riassegnare queste variabili; non modifica request.
   const { patientId, baseVersionId, newVersionId, activationTime } = request;
 
+  // 2. VALIDAZIONE DELL'ISTANTE
+  // Number.isFinite restituisce false per NaN, Infinity e -Infinity.
+  // ! nega il risultato: entriamo nell'if quando il numero non è finito.
+  // Non è un confronto con l'ora attuale: il timestamp del server arriva dall'esterno.
   if (!Number.isFinite(activationTime)) {
+    // RangeError distingue l'input numerico inutilizzabile dal conflitto di versione.
     throw new RangeError('activationTime deve essere un istante finito.');
   }
 
-  // some restituisce true se almeno un elemento soddisfa la condizione.
-  // Controlliamo tutte le versioni, anche di altri Patient: un id è unico ovunque.
+  // 3. UNICITÀ DELL'ID NEI DATI RICEVUTI
+  // some restituisce true appena un elemento soddisfa la funzione passata.
+  // (version) => ... è una funzione freccia: riceve un elemento e valuta il confronto.
+  // === confronta senza conversioni implicite, per esempio senza convertire stringhe.
+  // Qui controlliamo anche gli altri Patient, ma soltanto nella lista ricevuta:
+  // l'unicità nell'intero archivio richiederà un vincolo della persistenza.
   if (versions.some((version) => version.id === newVersionId)) {
+    // I backtick creano una stringa con interpolazione: ${...} inserisce il valore.
     throw new MealPlanTimelineError(`Identificativo ${newVersionId} già usato.`);
   }
 
-  // filter crea un nuovo array con i soli elementi che soddisfano la condizione.
+  // 4. SELEZIONE DELLO STORICO DEL PATIENT
+  // filter crea un nuovo array con gli elementi che rendono vera la condizione.
+  // versions rimane intatto; gli oggetti selezionati sono gli stessi, non copie.
+  // Questo filtro non autorizza il Nutritionist: quel controllo sarà nell'application.
   const patientVersions = versions.filter((version) => version.patientId === patientId);
 
+  // let permette di riassegnare current mentre cerchiamo la versione aperta.
+  // T | null significa che la variabile può contenere una versione oppure null.
+  // null iniziale: nessuna versione corrente trovata finora.
   let current: MealPlanVersionPeriod | null = null;
 
+  // 5. CONTROLLO DEGLI INTERVALLI E RICERCA DELLA VERSIONE CORRENTE
+  // for...of visita gli elementi; version è il riferimento all'elemento del giro.
   for (const version of patientVersions) {
-    // ADR-023: l'attivazione non può cadere prima o dentro un intervallo già
-    // esistente, altrimenti riscriverebbe una storia già usata dal diario.
-    // Scriviamo !(a < b) invece di a >= b: con NaN ogni confronto è false,
-    // quindi anche un dato salvato non valido viene respinto.
+    // La nuova attivazione deve essere strettamente successiva a ogni inizio.
+    // !(inizio < attivazione) diventa true se attivazione è prima o uguale all'inizio.
+    // Esempio: chiudere v3 esattamente quando inizia creerebbe un intervallo vuoto.
+    // Anche un inizio NaN viene respinto: il confronto è false e !false è true.
+    // Questo controllo non sostituisce la validazione completa della timeline.
     const activationNotAfterStart = !(version.validFrom < activationTime);
+
+    // Per una versione già chiusa, attivazione deve essere >= alla sua fine.
+    // && richiede entrambe le condizioni; se la fine è null non valuta la seconda.
+    // Per numeri validi !(fine <= attivazione) significa fine > attivazione.
+    // In tal caso la nuova attivazione cadrebbe prima della fine di uno storico chiuso.
+    // La versione aperta non ha una fine da controllare: gliela assegneremo più avanti.
     const activationBeforeEnd = version.validUntil !== null && !(version.validUntil <= activationTime);
+
+    // || significa almeno una condizione vera: uno dei due problemi basta a fermarci.
+    // ADR-023: non riscrivere intervalli storici tramite un'attivazione retroattiva.
     if (activationNotAfterStart || activationBeforeEnd) {
       throw new MealPlanTimelineError(
         `Attivazione non successiva all'intervallo di ${version.id}.`,
       );
     }
 
-    // La versione corrente è quella con fine aperta. Con attivazione immediata
-    // e senza programmazione futura, ne può esistere al massimo una (BR-03).
+    // Nel modello senza pianificazione futura, fine null identifica la corrente.
     if (version.validUntil === null) {
+      // Se current è già valorizzata, questa è una seconda versione aperta: BR-03.
+      // È un errore dei dati, non una base obsoleta dichiarata dal chiamante.
       if (current !== null) {
         throw new MealPlanTimelineError('Più versioni aperte per lo stesso Patient.');
       }
+      // Conserviamo lo stesso oggetto trovato nel ciclo: nessuna modifica o copia qui.
       current = version;
     }
   }
 
-  // ?. legge id solo se current non è null; ?? converte undefined in null.
+  // 6. CONTROLLO DELLA BASE (CONCORRENZA OTTIMISTICA)
+  // ?. legge id solo se current esiste; se è null produce undefined.
+  // ?? usa null quando il risultato a sinistra è null o undefined.
+  // Quindi: current=v3 -> 'v3'; current=null -> null.
   const currentVersionId = current?.id ?? null;
 
-  // BR-11: confronto tra la base dichiarata e quella effettiva.
-  // Vale anche alla creazione: base null con un piano già aperto è un conflitto.
+  // !== confronta la base caricata dal Nutritionist con la corrente ricevuta.
+  // Base v3/corrente v3: procediamo. Base v3/corrente v4: occorre ricaricare (BR-11).
+  // Creazione iniziale: base null/corrente null è ammessa;
+  // base null/corrente v3 è conflitto, perché un piano esiste già.
   if (baseVersionId !== currentVersionId) {
+    // Passiamo entrambi gli ID al costruttore: saranno leggibili nell'errore.
     throw new MealPlanVersionConflict(baseVersionId, currentVersionId);
   }
 
-  // Spread {...current}: copia tutti i campi, poi sovrascrive solo validUntil.
-  // L'oggetto originale resta intatto (BR-04/06: niente modifica in place).
+  // 7. CHIUSURA TRAMITE COPIA
+  // Operatore ternario: condizione ? valoreSeVera : valoreSeFalsa.
+  // Nessuna corrente -> null; corrente presente -> nuovo oggetto con fine fissata.
+  // {...current} copia i campi; validUntil scritto dopo sostituisce quello copiato.
+  // È una copia superficiale: qui i campi sono primitivi. Futuri campi annidati
+  // richiederanno una progettazione dell'immutabilità dei contenuti.
+  // current originale conserva fine null: niente modifica in place (BR-04/06).
   const closedVersion: MealPlanVersionPeriod | null =
     current === null ? null : { ...current, validUntil: activationTime };
 
+  // 8. CREAZIONE DEL NUOVO PERIODO
+  // Costruiamo un oggetto conforme all'interface MealPlanVersionPeriod.
+  // Non contiene ancora pasti, parentVersionId o ChangeSet: solo identità e validità.
   const newVersion: MealPlanVersionPeriod = {
     id: newVersionId,
+    // Abbreviazione: patientId equivale a patientId: patientId.
     patientId,
+    // Inizio nuova = fine precedente. L'estremo finale è escluso: nessun overlap.
     validFrom: activationTime,
+    // null lascia aperta la validità, fino a una successiva pubblicazione.
     validUntil: null,
   };
 
-  // Le versioni già chiuse sono riportate così come sono, stessi oggetti.
+  // 9. COMPOSIZIONE DELLA TIMELINE
+  // Per gli oggetti !== confronta l'identità, non il contenuto dei campi.
+  // current è il riferimento trovato nel ciclo, quindi escludiamo proprio quello.
+  // Le altre versioni conservano gli stessi oggetti; filter non li clona.
   const unchanged = patientVersions.filter((version) => version !== current);
+
+  // Spread di array [...unchanged, ...] crea un nuovo array con elementi aggiunti.
+  // Prima versione: nessuna chiusura, aggiungiamo solo newVersion.
+  // Aggiornamento: aggiungiamo la copia chiusa e poi newVersion.
+  // Esempio: [v2, v3] diventa [v2, copia chiusa di v3, nuova v4].
+  // L'array non include altri Patient e non è necessariamente ordinato per tempo.
   const updated =
     closedVersion === null ? [...unchanged, newVersion] : [...unchanged, closedVersion, newVersion];
 
+  // 10. RISULTATO AL CHIAMANTE
+  // I primi due campi sono abbreviati; versions: updated dà un nome diverso al campo.
+  // Equivale a {closedVersion: closedVersion, newVersion: newVersion, versions: updated}.
+  // Non elimina né salva dati: il chiamante riceve il risultato da persistere.
+  // Richieste simultanee richiederanno comunque transazione/vincoli nel repository.
   return { closedVersion, newVersion, versions: updated };
 }

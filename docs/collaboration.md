@@ -1,4 +1,6 @@
 # Collaborazione su GitHub
+Procedura corrente completa: [condividere il progetto](SHARING.md), inclusi commit/push della branch fase-2, invito GitHub, clone e ricostruzione del database sul secondo PC. Le sezioni successive conservano anche i passaggi storici iniziali.
+Aggiornamento 30 ottobre 2026: i comandi di installazione e avvio correnti sono nel [RUNBOOK](RUNBOOK.md). Il progetto ora include backend, PostgreSQL e interfaccia; i controlli iniziali con «due suite/nove test» sotto sono evidenza storica del primo snapshot. Le modifiche del completamento rimangono locali finché non vengono esplicitamente condivise tramite il normale flusso Git; questa documentazione non prova un push remoto.
 Codice, test, lockfile e docs/ sono condivisi nella repository NutriTrack.
 node_modules/, cache, file .env e riferimenti sincronizzati sources/ sono esclusi.
 La conversazione condivisa è separata: GitHub conserva le nostre note persistenti,

@@ -10,8 +10,8 @@ Pubblicare una nuova versione del piano partendo dalla versione attiva, applican
 - Creazione iniziale: è la stessa operazione con baseVersionId null ("non esiste ancora un piano"). Così ADR-021 vale anche per v1: due creazioni contemporanee non producono due piani aperti.
 
 ## Ordine di lettura
-1. apps/api/src/modules/meal-planning/domain/publish-new-version.ts: righe 28-43 l'errore di conflitto; 46-64 la forma di richiesta e risultato; 67 la funzione.
-2. Dentro la funzione: riga 80 id già usato; righe 89-110 controllo della timeline e ricerca della versione aperta; riga 117 confronto base/corrente; riga 123 chiusura tramite copia; riga 134 composizione della timeline aggiornata.
+1. apps/api/src/modules/meal-planning/domain/publish-new-version.ts: prima l'errore di conflitto, poi le interface della richiesta e del risultato, infine la funzione.
+2. La funzione è ora annotata in dieci blocchi di studio: estrazione richiesta, validazione istante, unicità ID, selezione Patient, controllo intervalli/corrente, confronto base, chiusura tramite copia, nuovo periodo, composizione timeline, risultato. I commenti spiegano operatori e limiti senza cambiare il comportamento.
 3. apps/api/tests/publish-new-version.spec.ts: otto casi, a partire da riga 40. Il caso delle due sessioni è a riga 62.
 
 ## Algoritmo passo per passo
@@ -36,8 +36,8 @@ Pubblicare una nuova versione del piano partendo dalla versione attiva, applican
 Dalla cartella principale: `pnpm check` (su Windows `pnpm.cmd check`). Risultato verificato: typecheck OK, 3 suite e 17 test PASS (8 nuovi casi).
 Solo questa suite: `pnpm --dir apps/api test -- publish-new-version`.
 Esercizi facoltativi, da ripristinare dopo la prova:
-- A riga 117 sostituire la condizione con `false`: falliscono i due test di conflitto (verificato).
-- A riga 94 cambiare `<` in `<=`: fallisce il test sulle attivazioni retroattive, perché v3 resterebbe con intervallo vuoto (verificato).
+- Nel confronto `if (baseVersionId !== currentVersionId)` sostituire la condizione con `false`: devono fallire i due test di conflitto.
+- In `activationNotAfterStart` cambiare `<` in `<=`: deve fallire il test sulle attivazioni retroattive, perché v3 resterebbe con intervallo vuoto.
 
 ## Confini del lavoro
 MealPlanVersionPeriod contiene ancora solo id e intervallo: pasti, parentVersionId e ChangeSet non sono modellati. L'immutabilità verificata qui è quella degli oggetti ricevuti e delle versioni chiuse; quella dei contenuti nutrizionali arriverà con il modello completo.

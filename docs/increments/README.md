@@ -1,4 +1,5 @@
 # Registro incrementi
+Il 30 ottobre 2026 l'utente ha richiesto il completamento integrato (ADR-028): i capitoli 0/1/2 restano il percorso didattico iniziale. Per i flussi completi usare [guida al professore](../PROFESSOR_GUIDE.md), [riepilogo decisioni](../DECISION_SUMMARY.md), [tracciabilità](../TRACEABILITY.md) e [runbook](../RUNBOOK.md).
 
 | Fase | Obiettivo | Stato |
 |---|---|---|

@@ -1,4 +1,5 @@
 # Verifica baseline documentale
+Questo documento registra il controllo storico della baseline. Per il completamento del 30 ottobre 2026 e le prove applicative consultare [TRACEABILITY](TRACEABILITY.md); le frasi storiche «nessuna implementazione» non descrivono lo stato corrente.
 Data: 2026-10-05.
 
 ## Copertura

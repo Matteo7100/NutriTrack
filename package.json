@@ -4,8 +4,16 @@
   "private": true,
   "packageManager": "pnpm@11.19.0",
   "scripts": {
-    "typecheck": "pnpm --dir apps/api typecheck",
-    "test": "pnpm --dir apps/api test",
-    "check": "pnpm typecheck && pnpm test"
+    "install:all": "pnpm --dir apps/api install --frozen-lockfile --store-dir .pnpm-store && pnpm --dir apps/web install --frozen-lockfile --store-dir .pnpm-store",
+    "typecheck": "pnpm --dir apps/api typecheck && pnpm --dir apps/web typecheck",
+    "test": "pnpm --dir apps/api test && pnpm --dir apps/web test",
+    "check": "pnpm typecheck && pnpm test",
+    "build": "pnpm --dir apps/api build && pnpm --dir apps/web build",
+    "dev:api": "pnpm --dir apps/api start:dev",
+    "dev:web": "pnpm --dir apps/web dev",
+    "start": "pnpm --dir apps/api start",
+    "db:generate": "pnpm --dir apps/api db:generate",
+    "db:migrate": "pnpm --dir apps/api db:migrate",
+    "db:seed": "pnpm --dir apps/api db:seed"
   }
 }
