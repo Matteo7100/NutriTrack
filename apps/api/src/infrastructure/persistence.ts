@@ -1,7 +1,7 @@
 /**
  * Concrete Factory delle famiglie Memory e PostgreSQL. Ogni factory crea i
  * repository dei moduli e una UnitOfWork collegati allo STESSO contesto transazionale.
- * Cambiare famiglia nel composition root non modifica i servizi o il formato dati.
+ * I servizi usano gli stessi contratti in entrambe le famiglie.
  * PostgreSQL conserva lock advisory + ReadCommitted; Memory replica commit/rollback.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -14,11 +14,14 @@ import { createEmptyMealPlanningState } from '../modules/meal-planning/public';
 import { createEmptyDiaryState } from '../modules/diary/public';
 import { createEmptyProgressState, StoredProgressPhoto } from '../modules/progress/public';
 import { StorageFactory } from './storage-factory';
-import { MemoryRepository, MemoryKey, MemoryState, ModuleKey, PostgresRepository, PrismaStateDelegate } from './repository-adapters';
+import { MemoryRepository, MemoryKey, MemoryState } from './repository-adapters';
 import { MemoryIdentityRepository, PostgresIdentityRepository } from './identity-repositories';
+import { MemoryPatientRepository, PostgresPatientRepository } from './patient-repositories';
+import { MemoryMealPlanRepository, PostgresMealPlanRepository } from './meal-plan-repositories';
+import { MemoryDiaryRepository, PostgresDiaryRepository } from './diary-repositories';
+import { MemoryProgressRepository, PostgresProgressRepository } from './progress-repositories';
 import { MemoryProgressPhotoRepository, PostgresProgressPhotoRepository } from './progress-photo-repositories';
 
-export type { ModuleKey } from './repository-adapters';
 export type { StorageFactory } from './storage-factory';
 
 /** Prodotto transazionale della famiglia Memory: fake usato esclusivamente nei test. */
@@ -52,10 +55,10 @@ export class MemoryStorageFactory implements StorageFactory, UnitOfWork {
     });
   }
   createIdentityRepository() { return new MemoryIdentityRepository(this.repository('identity', createEmptyIdentityState)); }
-  createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
-  createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
-  createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }
-  createProgressRepository() { return this.repository('progress', createEmptyProgressState); }
+  createPatientRepository() { return new MemoryPatientRepository(this.repository('patients', createEmptyPatientState)); }
+  createMealPlanRepository() { return new MemoryMealPlanRepository(this.repository('plans', createEmptyMealPlanningState)); }
+  createDiaryRepository() { return new MemoryDiaryRepository(this.repository('diary', createEmptyDiaryState)); }
+  createProgressRepository() { return new MemoryProgressRepository(this.repository('progress', createEmptyProgressState)); }
   createProgressPhotoRepository() { return new MemoryProgressPhotoRepository(this.repository<StoredProgressPhoto[]>('progressPhotos', () => [])); }
   // Tutti i client della stessa factory condividono questo prodotto e il suo stato.
   createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
@@ -86,20 +89,11 @@ export class PostgresStorageFactory implements StorageFactory, UnitOfWork {
     if (!tx) throw new Error('Repository usato fuori dalla UnitOfWork.');
     return tx;
   }
-  private repository<T>(key: ModuleKey, initial: () => T): Repository<T> {
-    return new PostgresRepository(initial, () => {
-      const tx = this.currentTransaction();
-      // Mappa infrastrutturale chiusa: ogni prodotto riceve esclusivamente il model proprio.
-      const models = { patients: tx.patientState,
-        plans: tx.mealPlanningState, diary: tx.diaryState, progress: tx.progressState };
-      return models[key] as unknown as PrismaStateDelegate;
-    });
-  }
   createIdentityRepository() { return new PostgresIdentityRepository(() => this.currentTransaction()); }
-  createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
-  createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
-  createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }
-  createProgressRepository() { return this.repository('progress', createEmptyProgressState); }
+  createPatientRepository() { return new PostgresPatientRepository(() => this.currentTransaction()); }
+  createMealPlanRepository() { return new PostgresMealPlanRepository(() => this.currentTransaction()); }
+  createDiaryRepository() { return new PostgresDiaryRepository(() => this.currentTransaction()); }
+  createProgressRepository() { return new PostgresProgressRepository(() => this.currentTransaction()); }
   createProgressPhotoRepository() { return new PostgresProgressPhotoRepository(() => this.currentTransaction().progressPhoto); }
   createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
   async close() { await this.client.$disconnect(); }

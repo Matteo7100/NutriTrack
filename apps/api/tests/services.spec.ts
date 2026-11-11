@@ -7,6 +7,10 @@
 import { Repository } from '../src/shared/contracts';
 import { IdentityService, createEmptyIdentityState } from '../src/modules/identity/public';
 import { MemoryIdentityRepository } from '../src/infrastructure/identity-repositories';
+import { MemoryPatientRepository } from '../src/infrastructure/patient-repositories';
+import { MemoryMealPlanRepository } from '../src/infrastructure/meal-plan-repositories';
+import { MemoryDiaryRepository } from '../src/infrastructure/diary-repositories';
+import { MemoryProgressRepository } from '../src/infrastructure/progress-repositories';
 import { PatientService, createEmptyPatientState } from '../src/modules/patient-management/public';
 import { MealPlanningService, createEmptyMealPlanningState, PlanContent } from '../src/modules/meal-planning/public';
 import { DiaryService, createEmptyDiaryState } from '../src/modules/diary/public';
@@ -22,10 +26,10 @@ async function fixture() {
   let now = Date.parse('2026-10-05T08:00:00Z');
   const clock = () => now;
   const identity = new IdentityService(new MemoryIdentityRepository(fake(createEmptyIdentityState())), clock);
-  const patients = new PatientService(fake(createEmptyPatientState()), identity, clock);
-  const plans = new MealPlanningService(fake(createEmptyMealPlanningState()), patients, clock);
-  const diary = new DiaryService(fake(createEmptyDiaryState()), patients, plans, clock);
-  const progress = new ProgressService(fake(createEmptyProgressState()), patients, clock);
+  const patients = new PatientService(new MemoryPatientRepository(fake(createEmptyPatientState())), identity, clock);
+  const plans = new MealPlanningService(new MemoryMealPlanRepository(fake(createEmptyMealPlanningState())), patients, clock);
+  const diary = new DiaryService(new MemoryDiaryRepository(fake(createEmptyDiaryState())), patients, plans, clock);
+  const progress = new ProgressService(new MemoryProgressRepository(fake(createEmptyProgressState())), patients, clock);
   const patient = await identity.provision('p@example.test', 'NutriTrack123!', 'Patient', 'PATIENT');
   const nutritionist = await identity.provision('n@example.test', 'NutriTrack123!', 'Nutritionist', 'NUTRITIONIST');
   const other = await identity.provision('other@example.test', 'NutriTrack123!', 'Other', 'NUTRITIONIST');

@@ -40,10 +40,10 @@ describe('Abstract Factory: famiglia Memory coerente', () => {
       const identity = factory.createIdentityRepository();
       expect((await identity.findAccountById(patient.id))?.email).toBe(patient.email);
       expect((await identity.findAccountById(nutritionist.id))?.email).toBe(nutritionist.email);
-      expect((await factory.createPatientRepository().get()).assignments).toHaveLength(1);
-      expect((await factory.createMealPlanRepository().get()).versions).toHaveLength(1);
-      expect((await factory.createDiaryRepository().get()).entries).toHaveLength(1);
-      expect((await factory.createProgressRepository().get()).measurements).toHaveLength(1);
+      expect(await factory.createPatientRepository().activeAssignmentsForNutritionist(nutritionist.id)).toHaveLength(1);
+      expect(await factory.createMealPlanRepository().listVersions(patient.id)).toHaveLength(1);
+      expect(await factory.createDiaryRepository().listByPatient(patient.id)).toHaveLength(1);
+      expect(await factory.createProgressRepository().listByPatient(patient.id)).toHaveLength(1);
     });
   });
 
@@ -68,21 +68,20 @@ describe('Abstract Factory: famiglia Memory coerente', () => {
     expect(await right.createUnitOfWork().run(() => rightApp.identity.findUserByEmail(patient.email))).toBeNull();
     // Un repository della famiglia sinistra non funziona nella transazione destra.
     await expect(right.createUnitOfWork().run(() => left.createIdentityRepository().findAccountById(patient.id))).rejects.toThrow('UnitOfWork');
-    await expect(left.createDiaryRepository().get()).rejects.toThrow('UnitOfWork');
+    await expect(left.createDiaryRepository().getPreference(patient.id)).rejects.toThrow('UnitOfWork');
   });
 
   it('gli adapter preservano copie su lettura e scrittura', async () => {
     const factory = new MemoryStorageFactory();
     const repo = factory.createDiaryRepository();
     await factory.createUnitOfWork().run(async () => {
-      const state = await repo.get();
-      state.preferences.P1 = { enabled: true, assignmentId: 'A1' };
-      await repo.save(state);
-      state.preferences.P1.enabled = false;
-      expect((await repo.get()).preferences.P1.enabled).toBe(true);
-      const read = await repo.get();
-      read.preferences.P1.enabled = false;
-      expect((await repo.get()).preferences.P1.enabled).toBe(true);
+      const preference = { enabled: true, assignmentId: 'A1' };
+      await repo.savePreference('P1', preference);
+      preference.enabled = false;
+      expect((await repo.getPreference('P1'))?.enabled).toBe(true);
+      const read = (await repo.getPreference('P1'))!;
+      read.enabled = false;
+      expect((await repo.getPreference('P1'))?.enabled).toBe(true);
     });
   });
 });

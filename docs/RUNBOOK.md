@@ -47,9 +47,9 @@ pnpm.cmd db:migrate
 pnpm.cmd db:seed
 ```
 
-Il database pubblica la porta 15432 solo sul loopback. `db:generate` genera il client Prisma, `db:migrate` applica le migrazioni versionate e `db:seed` predispone gli account della demo. Prima di aggiornare un database esistente, arrestare i server della demo e chiudere Prisma Studio. La migrazione degli account conserva gli ID e le sessioni e si interrompe se trova email duplicate. Il volume Docker conserva i dati quando si arresta il container.
+Il database pubblica la porta 15432 solo sul loopback. `db:generate` genera il client Prisma, `db:migrate` applica le migrazioni versionate e `db:seed` predispone gli account della demo. Prima di aggiornare un database esistente, arrestare i server della demo e chiudere Prisma Studio. Le migrazioni relazionali conservano ID e collegamenti. Se i dati precedenti violano i nuovi vincoli, la transazione si annulla. Il volume Docker conserva i dati quando si arresta il container.
 
-### Consultare gli account in Prisma Studio
+### Consultare le tabelle in Prisma Studio
 
 Con PostgreSQL attivo, eseguire dalla radice del progetto:
 
@@ -57,7 +57,18 @@ Con PostgreSQL attivo, eseguire dalla radice del progetto:
 pnpm.cmd --dir apps/api exec prisma studio --hostname 127.0.0.1 --port 5555 --browser none
 ```
 
-Aprire [Prisma Studio](http://127.0.0.1:5555), selezionare `Account` e filtrare per `email`. Ogni riga corrisponde a un utente. Nome, ruolo, data di nascita e altezza sono colonne del profilo. Le sessioni sono in `AccountSession`. Il database impedisce di registrare due righe con lo stesso indirizzo email.
+Aprire [Prisma Studio](http://127.0.0.1:5555) e cercare l’utente in `Account` tramite `email`. Copiare il suo `id` per filtrare `patientId` nelle altre tabelle.
+
+| Dati | Tabella e contenuto di ogni riga |
+|---|---|
+| Profili e sessioni | `Account` per utente, `AccountSession` per sessione |
+| Inviti e associazioni | `PatientInvitation` per invito, `PatientAssignment` per associazione attiva o terminata |
+| Piani | `MealPlan` per piano del paziente e `MealPlanVersion` per versione, con date di validità e collegamento alla versione precedente |
+| Contenuto dei piani | `MealPlanMeal`, `MealPlanAlternative`, `MealPlanFood` e `MealPlanChange` per ogni pasto, alternativa, alimento e modifica |
+| Diario | `DiaryEntry` per registrazione, `DiarySharingPreference` per preferenza di condivisione del paziente |
+| Progressi | `ProgressMeasurement` per pesata o circonferenza, `ProgressPhoto` per foto |
+
+Per aprire le versioni, partire dalla riga in `MealPlan` e seguire la relazione `versions`. Le registrazioni del diario riportano l’ID della versione valida al momento del consumo.
 
 ## 4. Compilazione e app completa
 `pnpm check` esegue normalmente i test che non richiedono PostgreSQL e la pipeline HTTP locale; il test di integrazione PostgreSQL viene saltato se TEST_DATABASE_URL non è impostata. Per includerlo dopo la migrazione, in PowerShell impostare `$env:TEST_DATABASE_URL = 'postgresql://nutritrack:nutritrack_local@localhost:15432/nutritrack?schema=public'`, quindi eseguire `pnpm.cmd check`. Quel test aggiunge solo account con email uniche al database demo e non cancella dati.

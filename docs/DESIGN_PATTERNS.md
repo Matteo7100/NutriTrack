@@ -28,12 +28,12 @@ Fonte teorica: [Adapter](https://refactoring.guru/design-patterns/adapter). L'ad
 | Ruolo | Codice |
 |---|---|
 | Client | Servizi dei cinque moduli |
-| Target | Repository<T> in [contracts.ts](../apps/api/src/shared/contracts.ts), con get/save |
-| Adapter concreti | MemoryRepository<T> e PostgresRepository<T> in [repository-adapters.ts](../apps/api/src/infrastructure/repository-adapters.ts) |
-| Adaptee PostgreSQL | Delegate del modello Prisma assegnato al modulo |
-| Traduzione | get→findUnique, save→upsert e conversione JSON |
+| Target | Il contratto di repository di ogni modulo, per esempio `DiaryRepository` |
+| Adapter concreti | `MemoryDiaryRepository` e `PostgresDiaryRepository` in [diary-repositories.ts](../apps/api/src/infrastructure/diary-repositories.ts) |
+| Adaptee PostgreSQL | Delegate Prisma delle tabelle assegnate al modulo |
+| Traduzione | `findByOperation` cerca per paziente e ID dell’operazione. `insert` salva una nuova riga. |
 
-In precedenza l'adapter era un oggetto restituito da repository(); adesso la responsabilità è rappresentata da classi esplicite. Il servizio continua a non importare Prisma, SQL o il repository di un altro modulo. MemoryRepository adatta lo storage del fake; non è un fallback operativo se PostgreSQL non funziona.
+Il servizio chiama il proprio contratto. L’adapter PostgreSQL converte i tipi di Prisma nei tipi del modulo e traduce le operazioni in query. L’adapter in memoria realizza lo stesso contratto sullo stato della Unit of Work di test.
 
 **Beneficio:** stesso contratto per logica applicativa e test. **Costo:** conversioni e confine tecnico da mantenere coerenti. Il termine «adapter HTTP» rimane utile architetturalmente, ma l'adapter repository è il riscontro GoF più preciso.
 
@@ -155,15 +155,16 @@ Il diagramma mostra responsabilità e nomi, non tutte le firme TypeScript. I det
 ## 7. Abstract Factory — famiglia coerente di storage
 Fonte teorica: [Abstract Factory](https://refactoring.guru/design-patterns/abstract-factory). La factory astratta costruisce una famiglia di prodotti correlati senza esporre al client le classi concrete.
 
-[storage-factory.ts](../apps/api/src/infrastructure/storage-factory.ts) dichiara StorageFactory con sei operazioni:
+[storage-factory.ts](../apps/api/src/infrastructure/storage-factory.ts) dichiara le operazioni di costruzione dei repository e della Unit of Work:
 - createIdentityRepository;
 - createPatientRepository;
 - createMealPlanRepository;
 - createDiaryRepository;
 - createProgressRepository;
+- createProgressPhotoRepository;
 - createUnitOfWork.
 
-Le factory concrete MemoryStorageFactory e PostgresStorageFactory sono in [persistence.ts](../apps/api/src/infrastructure/persistence.ts). Ciascuna produce cinque repository proprietari e la UnitOfWork che opera sullo stesso contesto transazionale. [Application](../apps/api/src/composition/application.ts) usa il contratto astratto e consegna il prodotto corretto a ogni servizio.
+Le factory concrete MemoryStorageFactory e PostgresStorageFactory costruiscono i repository dei cinque moduli e la Unit of Work che opera sullo stesso contesto transazionale. `Application` usa il contratto astratto e consegna il prodotto corretto a ogni servizio. [Factory concrete](../apps/api/src/infrastructure/persistence.ts), [composizione](../apps/api/src/composition/application.ts)
 
 ### Perché è una famiglia, non solo una funzione new
 Un repository PostgreSQL usato con una UnitOfWork memory non funzionerebbe correttamente: manca la transazione giusta. I prodotti di una factory condividono AsyncLocalStorage/contesto della stessa famiglia. La factory rende esplicito questo vincolo e toglie da Application le chiavi generiche di storage. I prodotti rimangono distinti e tipizzati per proprietario; non si crea un repository comune che tutti i moduli interrogano liberamente.
@@ -177,19 +178,20 @@ classDiagram
     createMealPlanRepository()
     createDiaryRepository()
     createProgressRepository()
+    createProgressPhotoRepository()
     createUnitOfWork()
   }
   class MemoryStorageFactory
   class PostgresStorageFactory
   class Application
-  class MemoryRepository
-  class PostgresRepository
+  class MemoryDiaryRepository
+  class PostgresDiaryRepository
   class MemoryUnitOfWork
   class PostgresUnitOfWork
-  class Repository {
+  class DiaryRepository {
     <<interface>>
-    get()
-    save(state)
+    findByOperation(patientId, operationId)
+    insert(entry)
   }
   class UnitOfWork {
     <<interface>>
@@ -198,13 +200,13 @@ classDiagram
   StorageFactory <|.. MemoryStorageFactory
   StorageFactory <|.. PostgresStorageFactory
   Application --> StorageFactory
-  Repository <|.. MemoryRepository
-  Repository <|.. PostgresRepository
+  DiaryRepository <|.. MemoryDiaryRepository
+  DiaryRepository <|.. PostgresDiaryRepository
   UnitOfWork <|.. MemoryUnitOfWork
   UnitOfWork <|.. PostgresUnitOfWork
-  MemoryStorageFactory --> MemoryRepository : crea prodotti tipizzati
+  MemoryStorageFactory --> MemoryDiaryRepository : esempio di prodotto
   MemoryStorageFactory --> MemoryUnitOfWork : stesso contesto
-  PostgresStorageFactory --> PostgresRepository : crea prodotti tipizzati
+  PostgresStorageFactory --> PostgresDiaryRepository : esempio di prodotto
   PostgresStorageFactory --> PostgresUnitOfWork : stessa transazione
 ```
 
@@ -222,7 +224,7 @@ Abstract Factory non sostituisce l'Adapter: la factory **crea** la famiglia, il 
 | Creazionali | Builder | Non dichiarato: l'editor alimentare costruisce dati ma non il protocollo GoF Builder. |
 | Creazionali | Prototype | Non dichiarato: structuredClone non prova un protocollo applicativo basato su prototipi clonabili. |
 | Creazionali | Singleton | Non dichiarato: provider condiviso o istanza del motore non bastano a una classe con costruzione unica e accesso globale controllati. |
-| Strutturali | Adapter | Presente: MemoryRepository/PostgresRepository traducono lo storage nel contratto get/save. |
+| Strutturali | Adapter | Gli adapter Memory e PostgreSQL realizzano i contratti dei repository di ciascun modulo. |
 | Strutturali | Bridge | Non dichiarato: non sono progettate due gerarchie indipendenti per separare astrazione e implementazione. |
 | Strutturali | Composite | Non dichiarato: pasti/opzioni/alimenti non hanno interfaccia ricorsiva uniforme di foglie e contenitori. |
 | Strutturali | Decorator | Non dichiarato: @Controller e @Module sono decoratori TypeScript/Nest, non wrapper GoF con stessa interfaccia. |
