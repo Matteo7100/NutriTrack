@@ -1,7 +1,7 @@
 /** Account solo dimostrativi; esecuzione esplicita, idempotente e senza cancellare dati. */
 import 'dotenv/config';
 import { Application } from './application';
-import { PostgresPersistence } from '../infrastructure/persistence';
+import { PostgresStorageFactory } from '../infrastructure/persistence';
 
 export async function seed(app: Application) {
   await app.persistence.run(async () => {
@@ -17,7 +17,7 @@ export async function seed(app: Application) {
   });
 }
 if (require.main === module) {
-  const persistence = new PostgresPersistence();
+  const persistence = new PostgresStorageFactory();
   void seed(new Application(persistence)).then(() => console.log('Account dimostrativi pronti; nessun dato preesistente modificato.'))
     .catch(error => { console.error(error); process.exitCode = 1; }).finally(() => persistence.close());
 }

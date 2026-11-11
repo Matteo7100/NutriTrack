@@ -1,27 +1,25 @@
 /**
- * Misurazioni storiche di peso: append-only, positive, WEIGHT/KG.
+ * Misurazioni storiche di peso e circonferenze: append-only e positive.
  * Il Patient registra i propri dati, il Nutritionist assegnato li legge anche
  * quando il diario è privato. Deduplicazione per operazione nella stessa transazione.
  */
 import { randomUUID } from 'node:crypto';
 import { AppError, Clock, Principal, Repository } from '../../../shared/contracts';
 import { PatientService } from '../../patient-management/public';
+import { observationTime, validOperationId } from '../domain/observations';
 
-export interface Measurement { id: string; patientId: string; type: 'WEIGHT'; value: number; unit: 'KG'; timestamp: number; createdAt: number; operationId: string }
+export { ProgressPhotoService, photoMetadata } from '../domain/photos';
+export type { ProgressPhoto, ProgressPhotoRepository, StoredProgressPhoto } from '../domain/photos';
+
+type MeasurementKind = { type: 'WEIGHT'; unit: 'KG' } | { type: 'ARM_CIRCUMFERENCE' | 'TORSO_CIRCUMFERENCE'; unit: 'CM' };
+export type Measurement = MeasurementKind & { id: string; patientId: string; value: number; timestamp: number; createdAt: number; operationId: string };
 export interface ProgressState { measurements: Measurement[] }
 export const createEmptyProgressState = (): ProgressState => ({ measurements: [] });
-export interface RecordMeasurement { operationId: string; type: 'WEIGHT'; value: number; unit: 'KG'; timestamp: string }
+export type RecordMeasurement = MeasurementKind & { operationId: string; value: number; timestamp: string };
 
-function timestamp(input: unknown, now: number): number {
-  const m = typeof input === 'string' && /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.exec(input);
-  if (!m) throw new AppError('InvalidMeasurement', 400, 'Timestamp ISO con offset richiesto.');
-  const [, y, mo, d, h, mi, s, zone] = m;
-  const offset = zone === 'Z' ? [0, 0] : zone.slice(1).split(':').map(Number);
-  const value = Date.parse(input as string);
-  const leap = +y % 4 === 0 && (+y % 100 !== 0 || +y % 400 === 0);
-  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][+mo - 1] ?? 0;
-  if (+mo < 1 || +mo > 12 || +d < 1 || +d > days || +h > 23 || +mi > 59 || +s > 59 || offset[0] > 23 || offset[1] > 59 || !Number.isFinite(value) || value > now) throw new AppError('InvalidMeasurement', 400, 'Data inesistente o futura.');
-  return value;
+function validKind(input: RecordMeasurement): boolean {
+  return (input.type === 'WEIGHT' && input.unit === 'KG') ||
+    ((input.type === 'ARM_CIRCUMFERENCE' || input.type === 'TORSO_CIRCUMFERENCE') && input.unit === 'CM');
 }
 
 export class ProgressService {
@@ -29,15 +27,15 @@ export class ProgressService {
 
   async record(actor: Principal, input: RecordMeasurement): Promise<Measurement> {
     if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Solo il Patient registra misurazioni.');
-    if (!input || typeof input.operationId !== 'string' || !/^[A-Za-z0-9_-]{8,100}$/.test(input.operationId) || input.type !== 'WEIGHT' || input.unit !== 'KG' || typeof input.value !== 'number' || !Number.isFinite(input.value) || input.value <= 0) throw new AppError('InvalidMeasurement', 400, 'Peso positivo e finito in kg richiesto.');
-    const time = timestamp(input.timestamp, this.clock());
+    if (!input || !validOperationId(input.operationId) || !validKind(input) || typeof input.value !== 'number' || !Number.isFinite(input.value) || input.value <= 0) throw new AppError('InvalidMeasurement', 400, 'Inserire un valore positivo in kg per il peso o in cm per le circonferenze.');
+    const time = observationTime(input.timestamp, this.clock(), 'InvalidMeasurement');
     const state = await this.repo.get();
     const existing = state.measurements.find(m => m.patientId === actor.id && m.operationId === input.operationId);
     if (existing) {
-      if (existing.value !== input.value || existing.timestamp !== time) throw new AppError('OperationConflict', 409, 'operationId già usato con dati diversi.');
+      if (existing.type !== input.type || existing.value !== input.value || existing.timestamp !== time) throw new AppError('OperationConflict', 409, 'operationId già usato con dati diversi.');
       return structuredClone(existing);
     }
-    const measurement: Measurement = { id: randomUUID(), patientId: actor.id, type: 'WEIGHT', value: input.value, unit: 'KG', timestamp: time, createdAt: this.clock(), operationId: input.operationId };
+    const measurement: Measurement = { ...input, id: randomUUID(), patientId: actor.id, timestamp: time, createdAt: this.clock() };
     state.measurements.push(measurement);
     await this.repo.save(state);
     return structuredClone(measurement);

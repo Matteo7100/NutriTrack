@@ -1,4 +1,5 @@
 # Registro incrementi
+4 novembre 2026: [refactoring dei pattern](refactor-patterns.md), con percorso di lettura per Command, Strategy, Observer e Abstract Factory. Stessi requisiti e dati persistiti; verifiche aggiornate in [TRACEABILITY](../TRACEABILITY.md).
 Il 30 ottobre 2026 l'utente ha richiesto il completamento integrato (ADR-028): i capitoli 0/1/2 restano il percorso didattico iniziale. Per i flussi completi usare [guida al professore](../PROFESSOR_GUIDE.md), [riepilogo decisioni](../DECISION_SUMMARY.md), [tracciabilità](../TRACEABILITY.md) e [runbook](../RUNBOOK.md).
 
 | Fase | Obiettivo | Stato |

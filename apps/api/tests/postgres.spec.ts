@@ -39,4 +39,24 @@ suite('PostgreSQL: transazioni reali e persistenza', () => {
     await expect(db.run(async () => { await app.diary.setSharing(p, true); throw new Error('rollback'); })).rejects.toThrow('rollback');
     expect(await second.run(() => other.diary.sharing(p))).toEqual({ enabled: false });
   }, 30000);
+
+  it('conserva foto binarie tra connessioni e rispetta il rollback', async () => {
+    const app = new Application(db), other = new Application(second);
+    const patient = await db.run(() => app.identity.provision(`p-${randomUUID()}@test.it`, 'TestPassword2026!', 'P Test', 'PATIENT'));
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7GQAAAAASUVORK5CYII=';
+    const payload = { operationId: randomUUID(), timestamp: new Date().toISOString(), dataUrl: `data:image/png;base64,${png}` };
+    const [first, retry] = await Promise.all([
+      db.run(() => app.progressPhotos.add(patient, payload)),
+      second.run(() => other.progressPhotos.add(patient, payload)),
+    ]);
+    expect(retry).toEqual(first);
+    expect(await second.run(() => other.progressPhotos.list(patient))).toEqual([first]);
+    await expect(db.run(async () => {
+      await app.progressPhotos.delete(patient, first.id);
+      throw new Error('rollback');
+    })).rejects.toThrow('rollback');
+    const stored = await second.run(() => other.progressPhotos.get(patient, first.id));
+    expect(Buffer.from(stored.bytes).toString('base64')).toBe(png);
+    await db.run(() => app.progressPhotos.delete(patient, first.id));
+  }, 30000);
 });

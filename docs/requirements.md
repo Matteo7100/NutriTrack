@@ -24,11 +24,16 @@ Fuori scope iniziale: pagamenti, videochiamate, piani generati da AI, riconoscim
 | FR-09 | Entry associata permanentemente alla versione valida a consumptionTime, indipendentemente dal sync; se nessuna versione è valida riferimento opzionale. |
 | FR-10 | Patient consulta storico diario proprio. |
 | FR-11 | Nutritionist consulta diario solo di Patient associato con sharing abilitato. |
-| FR-12 | Patient registra progress measurements. |
+| FR-12 | Patient registra peso in kg e circonferenze di braccio e busto in cm. |
 | FR-13 | Patient esegue operazioni offline supportate durante perdita temporanea di rete. |
 | FR-14 | Sync modifiche locali al ritorno della rete. |
 | FR-15 | Rilevare e gestire conflitti sync. |
 | FR-16 | Patient abilita/disabilita sharing diario con Nutritionist assegnato. |
+| FR-17 | Patient consulta e modifica nome, email, data di nascita e altezza dalla schermata profilo. L’età è calcolata dalla data di nascita. |
+| FR-18 | Un visitatore crea un account dal sito con email, password, nome e ruolo Patient o Nutritionist. |
+| FR-19 | Un utente può impostare una nuova password tramite un link di recupero via email, con scadenza e uso singolo. |
+| FR-20 | Patient gestisce online la propria galleria di foto dei progressi. Solo il proprietario accede alle foto. |
+| FR-21 | Ogni ruolo ha una dashboard con collegamenti alle proprie sezioni. |
 
 ## Business rules
 | ID | Regola |

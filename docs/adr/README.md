@@ -36,3 +36,8 @@ Ogni nuova decisione deve riportare contesto, decisione, motivazione, conseguenz
 - [ADR-026 — Provisioning account e sessioni](ADR-026.md)
 - [ADR-027 — Offline personale e riconciliazione](ADR-027.md)
 - [ADR-028 — Completamento e documentazione dell'esame](ADR-028.md)
+- [ADR-029 — Command per l'esecuzione delle operazioni offline](ADR-029.md)
+- [ADR-030 — Strategy per le politiche di retry](ADR-030.md)
+- [ADR-031 — Observer per le reazioni locali alla sincronizzazione](ADR-031.md)
+- [ADR-032 — Abstract Factory per famiglie di storage coerenti](ADR-032.md)
+- [ADR-033 — Account autonomi, recupero via email e archivio fotografico privato](ADR-033.md)

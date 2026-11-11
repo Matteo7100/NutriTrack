@@ -3,15 +3,21 @@ Il controller è in [app.controller.ts](../apps/api/src/composition/app.controll
 
 ## Autenticazione e errori
 POST /auth/login accetta email/password e restituisce user (id,email,name,role) e csrfToken, oltre a un cookie sessione HttpOnly. GET /auth/me recupera il principal e il token dopo un reload. Nessun ID attore arbitrario in un comando sostituisce il principal server.
-Le mutazioni successive richiedono X-CSRF-Token; cookie inviato same-origin. Le risposte API sono no-store. Logout revoca la sessione. Nessuna API pubblica di provisioning: usare account:create/seed nel runbook.
-Errore JSON: {code,message}. HTTP400 = validazione; 401 = login necessario; 403 = diniego/CSRF; 404 = risorsa assente; 409 = conflitto; 429 = limite tentativi. Non confondere un403 con una lista vuota autorizzata. POST riusciti restituiscono201, PUT200, GET200.
+Le mutazioni autenticate richiedono `X-CSRF-Token`. Le risposte API usano `Cache-Control: no-store`. Le richieste di recupero valide restituiscono lo stesso risultato anche quando l’indirizzo non è registrato. Il reset usa un token monouso valido 30 minuti e revoca le sessioni dell’account.
+
+Gli errori restituiscono `{code,message}`. I codici comprendono 400 per validazione, 401 per sessione assente, 403 per autorizzazione o CSRF, 404 per risorsa assente, 409 per conflitto, 413 per foto troppo grande, 429 per limite richieste e 503 se il servizio email è privo di configurazione. POST restituisce 201 salvo i codici indicati di seguito. GET, PATCH, PUT e DELETE restituiscono 200 in caso di successo.
 
 ## Endpoint
 | Metodo e percorso dopo /api | Corpo/parametri | Risultato e autorizzazione |
 |---|---|---|
 | POST /auth/login | email,password | user,csrfToken e cookie; login online |
+| POST /auth/register | `name`, `email`, `password`, `role` | `{user}`. Registrazione pubblica come `PATIENT` o `NUTRITIONIST`. |
+| POST /auth/forgot-password | `email` | 202 `{ok:true}`. Invia un link quando l’account esiste e il servizio è configurato. |
+| POST /auth/reset-password | `token`, `password` | 200 `{ok:true}`. Aggiorna la password e revoca le sessioni. |
 | GET /auth/me | — | user,csrfToken da sessione valida |
 | POST /auth/logout | — | ok; token CSRF |
+| GET /profile | — | Profilo del paziente autenticato. Ai campi pubblici dell’account aggiunge `birthDate` e `heightCm`, entrambi nullable. |
+| PATCH /profile | `name`, `email`, `birthDate` (YYYY-MM-DD), `heightCm`, `currentPassword` | Campi modificabili anche singolarmente. La password attuale è richiesta per cambiare email. Restituisce il profilo aggiornato. |
 | GET /patients | — | Nutritionist: Patient associati; Patient: Nutritionist attivo |
 | GET /patients/invitations | — | Inviti pending pertinenti al principal |
 | POST /patients/invitations | email Patient | Invito; solo Nutritionist |
@@ -25,7 +31,11 @@ Errore JSON: {code,message}. HTTP400 = validazione; 401 = login necessario; 403 
 | GET /sharing | — | enabled del proprio diario; solo Patient |
 | PUT /sharing | enabled booleano | Preferenza globale corrente; online |
 | GET /progress/:patientId | from/to opzionali | Measurements; nessun consenso diary richiesto all'assegnato |
-| POST /progress | operationId,timestamp,type,value,unit | Measurement del Patient; type WEIGHT, unit KG |
+| POST /progress | `operationId`, `timestamp`, `type`, `value`, `unit` | Misurazione del paziente. `WEIGHT` richiede `KG`. `ARM_CIRCUMFERENCE` e `TORSO_CIRCUMFERENCE` richiedono `CM`. |
+| GET /progress/photos | — | Elenco dei metadati delle foto del paziente autenticato. |
+| POST /progress/photos | `operationId`, `timestamp`, `dataUrl` | Metadati della foto salvata. JPEG, PNG o WebP fino a 2 MiB per foto, con un massimo di 50 foto per paziente. |
+| GET /progress/photos/:id | — | Immagine binaria con il `Content-Type` del formato, disponibile solo al proprietario. |
+| DELETE /progress/photos/:id | — | `{deleted:true}`. Solo il proprietario può cancellare la foto. |
 
 ## Contenuto piano di esempio
 ```json

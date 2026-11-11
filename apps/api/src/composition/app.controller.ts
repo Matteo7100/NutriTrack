@@ -3,7 +3,7 @@
  * inviato dal client sostituisce l'identità. Ogni operazione usa la UnitOfWork.
  * Il token CSRF di sessione protegge tutti i comandi autenticati.
  */
-import { Body, Controller, Get, Inject, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { Application } from './application';
@@ -18,6 +18,10 @@ function object(value: unknown, allowed: string[]): Record<string, any> {
   const body = value as Record<string, any>;
   if (Object.keys(body).some(key => !allowed.includes(key))) throw new AppError('ValidationError', 400, 'Campo non previsto dal contratto.');
   return body;
+}
+function jsonObject(req: Request, value: unknown, allowed: string[]) {
+  if (!req.is('application/json')) throw new AppError('ValidationError', 400, 'Usare application/json.');
+  return object(value, allowed);
 }
 function timeRange(value?: string): number | undefined {
   if (value === undefined) return undefined;
@@ -47,9 +51,8 @@ export class AppController {
   }
   @Post('auth/login')
   async login(@Req() req: Request, @Body() value: unknown, @Res({ passthrough: true }) res: Response) {
-    const b = object(value, ['email', 'password']);
     // Un POST JSON same-origin evita login CSRF tramite form esterno.
-    if (!req.is('application/json')) throw new AppError('ValidationError', 400, 'Usare application/json.');
+    const b = jsonObject(req, value, ['email', 'password']);
     return this.app.persistence.run(async () => {
       const auth = await this.app.identity.login(b.email, b.password);
       // Una nuova sessione sostituisce l'eventuale precedente, senza fissazione.
@@ -57,6 +60,35 @@ export class AppController {
       res.cookie('nt_session', auth.session.id, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000, path: '/' });
       return { user: auth.user, csrfToken: auth.session.csrfToken };
     });
+  }
+  @Post('auth/register')
+  async register(@Req() req: Request, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['email', 'password', 'name', 'role']);
+    const user = await this.app.persistence.run(() => this.app.identity.provision(b.email, b.password, b.name, b.role));
+    return { user };
+  }
+  @Post('auth/forgot-password')
+  @HttpCode(202)
+  async forgotPassword(@Req() req: Request, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['email']);
+    const send = this.app.sendPasswordReset;
+    if (!send) throw new AppError('PasswordResetUnavailable', 503, 'Il recupero via email non è disponibile al momento.');
+    const delivery = await this.app.persistence.run(() => this.app.identity.issuePasswordReset(b.email));
+    // Contatta il provider dopo il commit, senza esporne l'esito o la latenza al client.
+    if (delivery) {
+      void Promise.resolve().then(() => send(delivery)).catch(() => {
+        console.error('Invio email di recupero non riuscito.');
+      });
+    }
+    return { ok: true };
+  }
+  @Post('auth/reset-password')
+  @HttpCode(200)
+  async resetPassword(@Req() req: Request, @Body() value: unknown, @Res({ passthrough: true }) res: Response) {
+    const b = jsonObject(req, value, ['token', 'password']);
+    await this.app.persistence.run(() => this.app.identity.resetPassword(b.token, b.password));
+    res.clearCookie('nt_session', { path: '/' });
+    return { ok: true };
   }
   @Get('auth/me')
   me(@Req() req: Request) {
@@ -70,6 +102,15 @@ export class AppController {
     return this.authorized(req, true, async () => {
       await this.app.identity.logout(sessionId(req)); res.clearCookie('nt_session', { path: '/' }); return { ok: true };
     });
+  }
+  @Get('profile')
+  profile(@Req() req: Request) {
+    return this.authorized(req, false, user => this.app.identity.getProfile(user));
+  }
+  @Patch('profile')
+  updateProfile(@Req() req: Request, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['name', 'email', 'birthDate', 'heightCm', 'currentPassword']);
+    return this.authorized(req, true, user => this.app.identity.updateProfile(user, b));
   }
   @Get('patients') listPatients(@Req() req: Request) { return this.authorized(req, false, u => this.app.patients.list(u)); }
   @Get('patients/invitations') invitations(@Req() req: Request) { return this.authorized(req, false, u => this.app.patients.invitations(u)); }
@@ -103,6 +144,20 @@ export class AppController {
   @Get('sharing') sharing(@Req() req: Request) { return this.authorized(req, false, u => this.app.diary.sharing(u)); }
   @Put('sharing') setSharing(@Req() req: Request, @Body() value: unknown) {
     const b = object(value, ['enabled']); return this.authorized(req, true, u => this.app.diary.setSharing(u, b.enabled));
+  }
+  @Get('progress/photos') listProgressPhotos(@Req() req: Request) {
+    return this.authorized(req, false, u => this.app.progressPhotos.list(u));
+  }
+  @Post('progress/photos') addProgressPhoto(@Req() req: Request, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['operationId', 'timestamp', 'dataUrl']);
+    return this.authorized(req, true, u => this.app.progressPhotos.add(u, b));
+  }
+  @Get('progress/photos/:id') async progressPhoto(@Req() req: Request, @Param('id') id: string, @Res() res: Response) {
+    const photo = await this.authorized(req, false, u => this.app.progressPhotos.get(u, id));
+    res.type(photo.mimeType).set('Content-Length', String(photo.bytes.length)).end(photo.bytes);
+  }
+  @Delete('progress/photos/:id') deleteProgressPhoto(@Req() req: Request, @Param('id') id: string) {
+    return this.authorized(req, true, u => this.app.progressPhotos.delete(u, id));
   }
   @Get('progress/:patientId') progress(@Req() req: Request, @Param('patientId') id: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.authorized(req, false, u => this.app.progress.list(u, id, timeRange(from), timeRange(to)));

@@ -38,9 +38,15 @@ Le frecce tra moduli significano uso del contratto pubblico, non accesso al data
 Contesto e alternative: ADR-001, 010, 011, 012, 015 e [architecture.md](architecture.md). Microservizi avrebbero aggiunto rete e transazioni distribuite senza un requisito che li richiedesse.
 
 ## 3. Pattern realmente utilizzati
+Confronto puntuale con il catalogo dei 22 di Refactoring Guru: [DESIGN_PATTERNS](DESIGN_PATTERNS.md). Il codice dopo il refactoring del 4 novembre 2026 presenta sei GoF motivati: Facade, Adapter, Command, Strategy, Observer e Abstract Factory. La tabella seguente comprende anche pattern enterprise, tecniche, principi e proprietà: non sono tutte voci dello stesso catalogo. Repository e UnitOfWork sono implementazioni semplificate, come precisato nella guida.
 | Concetto | Dove leggerlo | Spiegazione da dare |
 |---|---|---|
 | Facade / public module contract | public/index.ts dei cinque moduli | Il chiamante usa operazioni semantiche, senza conoscere la persistenza. |
+| Adapter GoF | [repository-adapters.ts](../apps/api/src/infrastructure/repository-adapters.ts) | MemoryRepository/PostgresRepository traducono get/save nelle operazioni dello storage. |
+| Command GoF | [sync/commands.ts](../apps/web/src/sync/commands.ts) | SyncCommand.execute incapsula richiesta pasto/peso; il motore invoca senza conoscere l'endpoint concreto. |
+| Strategy GoF | [sync/retry.ts](../apps/web/src/sync/retry.ts) | RetryContext delega la decisione a backoff/login/stop; la politica può cambiare senza modificare il motore. |
+| Observer GoF | [sync-engine.ts](../apps/web/src/sync/sync-engine.ts), [observers.ts](../apps/web/src/sync/observers.ts), [App.tsx](../apps/web/src/App.tsx) | Subject e due subscriber reali separano pannello coda e refresh dati, con cleanup account. |
+| Abstract Factory GoF | [storage-factory.ts](../apps/api/src/infrastructure/storage-factory.ts), [persistence.ts](../apps/api/src/infrastructure/persistence.ts) | Due factory costruiscono ciascuna cinque repository e UnitOfWork della stessa famiglia. |
 | Repository | [shared/contracts.ts](../apps/api/src/shared/contracts.ts), [persistence.ts](../apps/api/src/infrastructure/persistence.ts) | L'application dipende dall'interfaccia; l'adapter Prisma la realizza e i test sostituiscono lo storage. |
 | Dependency inversion e injection | [composition/application.ts](../apps/api/src/composition/application.ts) | La composition root fornisce repository, clock e altri contratti ai servizi; il dominio non crea client Prisma. |
 | Unit of Work | [shared/unit-of-work.ts](../apps/api/src/shared/unit-of-work.ts), infrastruttura persistente | Una richiesta completa è atomica. Nessuna metà della pubblicazione sopravvive a un fallimento. |
@@ -51,6 +57,27 @@ Contesto e alternative: ADR-001, 010, 011, 012, 015 e [architecture.md](architec
 | Local queue / cache | [apps/web/src](../apps/web/src) | La UI conserva operazioni supportate e le riconcilia; non determina la versione confermata. |
 
 Non chiamare «Singleton», «CQRS», «event sourcing» o «microservizi» ciò che non è stato adottato. Versioni immutabili non equivalgono a event sourcing: conserviamo versioni materializzate, non ricostruiamo tutto lo stato da un log di eventi.
+
+### Presentare i sei pattern con una sola storia
+1. Partire dalla Facade DiaryService.record: una richiesta esterna nasconde più collaboratori, preservando ownership.
+2. Seguire Repository<T> fino all'Adapter PostgresRepository: traduce get/save in Prisma. Non descrivere più un oggetto anonimo restituito da repository(), che apparteneva alla versione precedente.
+3. Aprire StorageFactory e Application: la factory astratta sceglie prodotti coerenti memory o PostgreSQL. Non è un semplice new né un Factory Method; cinque prodotti proprietari e UnitOfWork condividono contesto.
+4. Passare al browser: un Queued viene ricostruito in RecordMealCommand o RecordWeightCommand e l'invoker ne chiama execute. I dati si serializzano, i metodi si ricostruiscono; operationId non cambia.
+5. Produrre un errore noto: RetryContext.select trova una RetryStrategy, decide calcola status/nextAttempt/stopBatch. Il test può sostituire il backoff senza modificare comandi, motore o IndexedDB. Questo è il beneficio concreto della nuova Strategy: responsabilità separata e algoritmo verificabile.
+6. Mostrare un confirmed: SyncEngine notifica QueuePanelModel e PatientDataRefresher. Il primo rilegge la coda, il secondo i dati Patient; App registra davvero entrambi e li rimuove al cambio account. Non è sufficiente chiamare gli eventi online del browser «Observer».
+
+I due diagrammi di classi leggibili sono in [DESIGN_PATTERNS](DESIGN_PATTERNS.md), viste «collaborazioni offline» e «famiglia di storage». Per i singoli dettagli del codice usare [refactor-patterns](increments/refactor-patterns.md). Le decisioni e i trade-off sono in ADR-029..032.
+
+### Evidenze da aprire durante l'esposizione
+| Esempio | Test mirato | Cosa dimostra |
+|---|---|---|
+| Facade e regole del diario | [services.spec.ts](../apps/api/tests/services.spec.ts) | Collaborazione dei servizi con autorizzazione, privacy e risoluzione storica |
+| Adapter/famiglia coerente | [factory.spec.ts](../apps/api/tests/factory.spec.ts) e [postgres.spec.ts](../apps/api/tests/postgres.spec.ts) | Prodotti coerenti, isolamento/rollback; adapter PostgreSQL quando il database reale è abilitato |
+| Command | [commands.test.ts](../apps/web/src/sync/commands.test.ts) | Richiesta concreta e ripristino con ID/payload invariati |
+| Strategy | [retry.test.ts](../apps/web/src/sync/retry.test.ts) | Classificazione errori, tempi deterministici e politica sostituibile |
+| Observer e invoker | [sync-engine.test.ts](../apps/web/src/sync/sync-engine.test.ts) | Notifiche, reazioni, cleanup e protezione account durante operazioni asincrone |
+
+Questi collegamenti indicano l'evidenza pertinente; gli esiti aggiornati sono in TRACEABILITY e non si deducono dal semplice nome del test. Restano importanti le prove browser con storage reale e PostgreSQL: i test delle classi non le sostituiscono.
 
 ## 4. Modello e invarianti temporali
 MealPlan è l'identità stabile; MealPlanVersion contiene la prescrizione valida in un intervallo e il collegamento parent. Pasto → alternative → alimenti/quantità/unità descrivono il contenuto. ChangeSet spiega differenze tra contenuti delle versioni. DiaryEntry contiene il consumo reale e un ID esterno opzionale; Measurement rappresenta un valore storico, non il campo corrente di Patient.
@@ -105,7 +132,7 @@ La transazione con advisory lock comune serializza pubblicazione, autorizzazione
 ## 8. API contro eventi
 Diary ha bisogno di una risposta immediata da getVersionAt; i servizi di lettura hanno bisogno di isAssigned. Qui la chiamata interna sincrona è appropriata. Un evento come MealPlanVersionCreated comunicherebbe un fatto a eventuali consumer non critici, ma non è necessario introdurre un event bus senza un consumer richiesto.
 
-ADR-013 definisce quando scegliere i due meccanismi; NFR-04 richiede comunicazione esplicita tramite API **o** eventi. Usare API è sufficiente. La ricostruzione storica e i controlli privacy non dipendono da eventi consegnati in ritardo.
+ADR-013 definisce quando scegliere i due meccanismi; NFR-04 richiede comunicazione esplicita tramite API **o** eventi. Usare API è sufficiente. La ricostruzione storica e i controlli privacy non dipendono da eventi consegnati in ritardo. Il nuovo Observer della sincronizzazione riguarda aggiornamenti locali della UI: non introduce un bus di eventi tra i moduli di dominio né notifiche di prodotto.
 
 ## 9. Dimostrazione consigliata
 1. Avviare seguendo [RUNBOOK.md](RUNBOOK.md), mostrare esito dei test realmente eseguiti.
