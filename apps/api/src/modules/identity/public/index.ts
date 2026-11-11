@@ -3,14 +3,14 @@
  * Il repository appartiene a Identity. Tutte le mutazioni avvengono nella UnitOfWork.
  */
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { AppError, Clock, Principal, Repository, Role } from '../../../shared/contracts';
+import { AppError, Clock, Principal, Role } from '../../../shared/contracts';
 
 export interface PatientProfile extends Principal {
   birthDate: string | null;
   heightCm: number | null;
 }
 interface PasswordReset { digest: string; issuedAt: number; expiresAt: number }
-interface Account extends Principal {
+export interface Account extends Principal {
   salt: string;
   passwordHash: string;
   birthDate?: string | null;
@@ -26,6 +26,18 @@ interface ProfileUpdate {
 }
 export interface PasswordResetDelivery { email: string; token: string }
 export interface Session { id: string; userId: string; csrfToken: string; expiresAt: number }
+export interface IdentityRepository {
+  findAccountByEmail(email: string): Promise<Account | null>;
+  findAccountById(id: string): Promise<Account | null>;
+  findAccountByResetDigest(digest: string): Promise<Account | null>;
+  createAccount(account: Account): Promise<void>;
+  updateAccount(account: Account): Promise<void>;
+  findSession(id: string): Promise<Session | null>;
+  createSession(session: Session): Promise<void>;
+  deleteSession(id: string): Promise<void>;
+  deleteSessionsForUser(userId: string): Promise<void>;
+  deleteExpiredSessions(now: number): Promise<void>;
+}
 export interface IdentityState { accounts: Account[]; sessions: Session[] }
 export const createEmptyIdentityState = (): IdentityState => ({ accounts: [], sessions: [] });
 const principal = ({ id, email, name, role }: Account): Principal => ({ id, email, name, role });
@@ -55,7 +67,7 @@ function credentials(password: string) {
   return { salt, passwordHash: scryptSync(password, salt, 64).toString('hex') };
 }
 
-function matchesPassword(password: string, account?: Account) {
+function matchesPassword(password: string, account: Account | null) {
   // Anche l'account inesistente esegue scrypt.
   const actual = scryptSync(password, account?.salt ?? '00000000000000000000000000000000', 64);
   const expected = account ? Buffer.from(account.passwordHash, 'hex') : Buffer.alloc(64);
@@ -64,13 +76,6 @@ function matchesPassword(password: string, account?: Account) {
 
 function profile(account: Account): PatientProfile {
   return { ...principal(account), birthDate: account.birthDate ?? null, heightCm: account.heightCm ?? null };
-}
-
-function patientAccount(state: IdentityState, actor: Principal) {
-  if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Il profilo è riservato al paziente.');
-  const account = state.accounts.find(a => a.id === actor.id);
-  if (!account) throw new AppError('PatientNotFound', 404, 'Profilo non trovato.');
-  return account;
 }
 
 function validatedBirthDate(value: unknown, now: number) {
@@ -94,7 +99,14 @@ function resetDigest(token: string) {
 }
 
 export class IdentityService {
-  constructor(private readonly repo: Repository<IdentityState>, private readonly clock: Clock) {}
+  constructor(private readonly repo: IdentityRepository, private readonly clock: Clock) {}
+
+  private async patientAccount(actor: Principal): Promise<Account> {
+    if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Il profilo è riservato al paziente.');
+    const account = await this.repo.findAccountById(actor.id);
+    if (!account) throw new AppError('PatientNotFound', 404, 'Profilo non trovato.');
+    return account;
+  }
 
   async provision(email: string, password: string, name: string, role: Role): Promise<Principal> {
     if (!validPassword(password) || !['PATIENT', 'NUTRITIONIST'].includes(role)) {
@@ -102,11 +114,9 @@ export class IdentityService {
     }
     const normalized = normalizedEmail(email);
     const displayName = normalizedName(name);
-    const state = await this.repo.get();
-    if (state.accounts.some(a => a.email === normalized)) throw new AppError('AccountExists', 409, 'Email già registrata.');
+    if (await this.repo.findAccountByEmail(normalized)) throw new AppError('AccountExists', 409, 'Email già registrata.');
     const account: Account = { id: randomUUID(), email: normalized, name: displayName, role, ...credentials(password) };
-    state.accounts.push(account);
-    await this.repo.save(state);
+    await this.repo.createAccount(account);
     return principal(account);
   }
 
@@ -114,24 +124,22 @@ export class IdentityService {
     if (typeof email !== 'string' || typeof password !== 'string' || password.length > 128) {
       throw new AppError('AuthenticationError', 401, 'Credenziali non valide.');
     }
-    const state = await this.repo.get();
-    const account = state.accounts.find(a => a.email === email.trim().toLowerCase());
+    const account = await this.repo.findAccountByEmail(email.trim().toLowerCase());
     if (!matchesPassword(password, account) || !account) throw new AppError('AuthenticationError', 401, 'Credenziali non valide.');
+    const now = this.clock();
     const session: Session = { id: randomBytes(32).toString('hex'), userId: account.id,
-      csrfToken: randomBytes(32).toString('hex'), expiresAt: this.clock() + 8 * 60 * 60 * 1000 };
-    state.sessions = state.sessions.filter(s => s.expiresAt > this.clock());
-    state.sessions.push(session);
-    await this.repo.save(state);
+      csrfToken: randomBytes(32).toString('hex'), expiresAt: now + 8 * 60 * 60 * 1000 };
+    await this.repo.deleteExpiredSessions(now);
+    await this.repo.createSession(session);
     return { user: principal(account), session };
   }
 
   async getProfile(actor: Principal): Promise<PatientProfile> {
-    return profile(patientAccount(await this.repo.get(), actor));
+    return profile(await this.patientAccount(actor));
   }
 
   async updateProfile(actor: Principal, update: ProfileUpdate): Promise<PatientProfile> {
-    const state = await this.repo.get();
-    const account = patientAccount(state, actor);
+    const account = await this.patientAccount(actor);
     const email = update.email === undefined ? account.email : normalizedEmail(update.email);
     const name = update.name === undefined ? account.name : normalizedName(update.name);
     const birthDate = update.birthDate === undefined ? account.birthDate ?? null : validatedBirthDate(update.birthDate, this.clock());
@@ -141,23 +149,22 @@ export class IdentityService {
           !matchesPassword(update.currentPassword, account)) {
         throw new AppError('CurrentPasswordRequired', 400, 'Per cambiare email, inserisci la password attuale corretta.');
       }
-      if (state.accounts.some(a => a.email === email)) throw new AppError('AccountExists', 409, 'Email già registrata.');
+      if (await this.repo.findAccountByEmail(email)) throw new AppError('AccountExists', 409, 'Email già registrata.');
       delete account.passwordReset;
     }
     Object.assign(account, { email, name, birthDate, heightCm });
-    await this.repo.save(state);
+    await this.repo.updateAccount(account);
     return profile(account);
   }
 
   async issuePasswordReset(email: unknown): Promise<PasswordResetDelivery | null> {
     const normalized = normalizedEmail(email);
-    const state = await this.repo.get();
-    const account = state.accounts.find(a => a.email === normalized);
+    const account = await this.repo.findAccountByEmail(normalized);
     const now = this.clock();
     if (!account || (account.passwordReset && now - account.passwordReset.issuedAt < resetCooldown)) return null;
     const token = randomBytes(32).toString('hex');
     account.passwordReset = { digest: resetDigest(token), issuedAt: now, expiresAt: now + resetLifetime };
-    await this.repo.save(state);
+    await this.repo.updateAccount(account);
     return { email: account.email, token };
   }
 
@@ -165,39 +172,33 @@ export class IdentityService {
     if (!validPassword(password)) throw new AppError('ValidationError', 400, 'La password deve contenere da 10 a 128 caratteri.');
     const invalidReset = () => new AppError('InvalidResetToken', 400, 'Link di recupero non valido o scaduto. Richiedi un nuovo link.');
     if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) throw invalidReset();
-    const digest = resetDigest(token);
-    const state = await this.repo.get();
-    const now = this.clock();
-    const account = state.accounts.find(a => a.passwordReset?.digest === digest && a.passwordReset.expiresAt > now);
-    if (!account) throw invalidReset();
+    const account = await this.repo.findAccountByResetDigest(resetDigest(token));
+    if (!account?.passwordReset || account.passwordReset.expiresAt <= this.clock()) throw invalidReset();
     Object.assign(account, credentials(password));
     delete account.passwordReset;
-    state.sessions = state.sessions.filter(s => s.userId !== account.id);
-    await this.repo.save(state);
+    await this.repo.updateAccount(account);
+    await this.repo.deleteSessionsForUser(account.id);
   }
 
   async authenticate(sessionId: string) {
-    const state = await this.repo.get();
-    const session = state.sessions.find(s => s.id === sessionId && s.expiresAt > this.clock());
-    const account = session && state.accounts.find(a => a.id === session.userId);
+    const session = await this.repo.findSession(sessionId);
+    const account = session && session.expiresAt > this.clock() ? await this.repo.findAccountById(session.userId) : null;
     if (!session || !account) throw new AppError('AuthenticationError', 401, 'Sessione assente o scaduta: accedere di nuovo.');
     return { user: principal(account), session };
   }
 
   async logout(sessionId: string): Promise<void> {
-    const state = await this.repo.get();
-    state.sessions = state.sessions.filter(s => s.id !== sessionId);
-    await this.repo.save(state);
+    await this.repo.deleteSession(sessionId);
   }
 
   async findUserByEmail(email: string): Promise<Principal | null> {
     if (typeof email !== 'string') return null;
-    const account = (await this.repo.get()).accounts.find(a => a.email === email.trim().toLowerCase());
+    const account = await this.repo.findAccountByEmail(email.trim().toLowerCase());
     return account ? principal(account) : null;
   }
 
   async getUser(id: string): Promise<Principal> {
-    const account = (await this.repo.get()).accounts.find(a => a.id === id);
+    const account = await this.repo.findAccountById(id);
     if (!account) throw new AppError('PatientNotFound', 404, 'Profilo non trovato.');
     return principal(account);
   }

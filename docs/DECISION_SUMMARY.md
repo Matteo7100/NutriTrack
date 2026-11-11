@@ -63,6 +63,7 @@ La versione iniziale comprende Patient e Nutritionist, associazione con accettaz
 | [031](adr/ADR-031.md) | Observer locale con due subscriber reali | Aggiornare coda e dati Patient senza coupling sul booleano changed. |
 | [032](adr/ADR-032.md) | Abstract Factory dei cinque repository e UnitOfWork | Comporre prodotti coerenti e tipizzati della famiglia memory/PostgreSQL. |
 | [033](adr/ADR-033.md) | Invio di email di recupero e archivio fotografico di Progress | Delegare la consegna a Resend e separare foto e misurazioni nel database. |
+| [034](adr/ADR-034.md) | Tabella `Account` con una riga per utente e sessioni separate | Rendere i profili leggibili per riga e imporre l’unicità dell’email in PostgreSQL. |
 
 ## Dettagli del refactoring del 4 novembre
 - SyncCommand.execute incapsula l'invio; RecordMealCommand e RecordWeightCommand ricevono ApiClient. restoreCommand ricrea dal DTO ma non è un Factory Method GoF e non aggiunge undo.

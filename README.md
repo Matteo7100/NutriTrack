@@ -8,7 +8,7 @@ Per aggiornare un’installazione esistente, eseguire `pnpm db:generate` e `pnpm
 
 ## Documentazione per studiare e presentare
 1. [Guida al professore](docs/PROFESSOR_GUIDE.md): percorso ragionato, design pattern, invarianti e punti del codice.
-2. [Riepilogo decisioni](docs/DECISION_SUMMARY.md): tutte le scelte, con motivazioni e ADR-001..033.
+2. [Riepilogo decisioni](docs/DECISION_SUMMARY.md): tutte le scelte, con motivazioni e ADR-001..034.
 3. [Requirements](docs/requirements.md): FR-01..21, BR-01..11 e NFR-01..07.
 4. [Tracciabilità](docs/TRACEABILITY.md): requisito → implementazione → prova.
 5. [Use cases](docs/use-cases.md), [architettura](docs/architecture.md) e [notebook](docs/PROJECT_DESIGN_NOTEBOOK.md).

@@ -125,7 +125,7 @@ La preferenza parte false e si riferisce al diario intero, incluso lo storico; n
 Il diniego è un errore distinto da una lista vuota: DiaryNotShared non significa «il Patient non ha mangiato». Il browser Nutritionist non mantiene una cache offline dei diari dei pazienti. Password e session ID non si salvano in IndexedDB. [ADR-005/019/022/026/027](DECISION_SUMMARY.md).
 
 ## 7. Persistenza e concorrenza: spiegare il compromesso
-Mostrare [schema Prisma](../apps/api/prisma/schema.prisma), repository e Unit of Work. Le tabelle di stato sono separate per modulo. PostgreSQL conserva JSON degli aggregati; l'ownership è imposta dalla composizione e dalle interfacce, non da un accesso indiscriminato di tutti i servizi allo stesso oggetto.
+Mostrare lo schema Prisma, i repository e la Unit of Work. Identity conserva una riga per utente in `Account` e collega le sessioni tramite `AccountSession.userId`. Gli aggregati degli altri moduli conservano lo stato in JSON, mentre Progress ha una tabella binaria per le foto. La composizione assegna a ciascun servizio il repository del suo modulo. [Schema Prisma](../apps/api/prisma/schema.prisma)
 
 La transazione con advisory lock comune serializza pubblicazione, autorizzazione e deduplicazione. È una scelta prudente per il progetto accademico, con throughput limitato e salvataggi ampi. Protegge tutte le operazioni che passano dall'applicazione; non si afferma che una scrittura SQL manuale esterna sia automaticamente valida. In un'evoluzione si potrebbero normalizzare tabelle, aggiungere vincoli specifici e ridurre la granularità dei lock senza cambiare il contratto di dominio.
 

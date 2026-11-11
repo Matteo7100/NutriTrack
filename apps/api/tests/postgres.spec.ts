@@ -3,6 +3,7 @@
  * TEST_DATABASE_URL deve indicare il DB locale di test. Nessun fallback memory.
  */
 import { randomUUID } from 'node:crypto';
+import { PrismaClient } from '@prisma/client';
 import { PostgresPersistence } from '../src/infrastructure/persistence';
 import { Application } from '../src/composition/application';
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
@@ -14,6 +15,27 @@ suite('PostgreSQL: transazioni reali e persistenza', () => {
     db = new PostgresPersistence(); second = new PostgresPersistence();
   });
   afterAll(async () => { await db?.close(); await second?.close(); });
+
+  it('aggiorna la stessa riga del paziente e applica l’unicità dell’email in PostgreSQL', async () => {
+    const client = new PrismaClient();
+    const app = new Application(db), other = new Application(second);
+    const email = `p-${randomUUID()}@test.it`;
+    const password = 'TestPassword2026!';
+    try {
+      const patient = await db.run(() => app.identity.provision(email, password, 'Nome iniziale', 'PATIENT'));
+      const { session } = await db.run(() => app.identity.login(email, password));
+      await db.run(() => app.identity.updateProfile(patient, { name: 'Mario Rossi', birthDate: '1990-04-12', heightCm: 178.5 }));
+      const accounts = await client.account.findMany({ where: { email } });
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0]).toMatchObject({ id: patient.id, email, name: 'Mario Rossi', heightCm: 178.5 });
+      expect(accounts[0].birthDate?.toISOString()).toBe('1990-04-12T00:00:00.000Z');
+      expect((await second.run(() => other.identity.authenticate(session.id))).user.name).toBe('Mario Rossi');
+      const { id, ...duplicate } = accounts[0];
+      await expect(client.account.create({ data: { ...duplicate, id: randomUUID() } })).rejects.toMatchObject({ code: 'P2002' });
+      await expect(client.account.create({ data: { ...duplicate, email: email.toUpperCase(), id: randomUUID() } })).rejects.toThrow();
+    } finally { await client.$disconnect(); }
+  }, 30000);
+
   it('con due connessioni accetta una sola pubblicazione dalla stessa base e deduplica retry', async () => {
     const app = new Application(db), other = new Application(second);
     const suffix = randomUUID();

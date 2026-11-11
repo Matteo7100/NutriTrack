@@ -1,5 +1,4 @@
-// Ogni documento è proprietà esclusiva di un modulo. Nessun repository cross-module.
-// JSON conserva aggregate completi; la transazione e il lock serializzano i comandi.
+// Ogni tabella appartiene a un modulo. Il lock e la transazione serializzano i comandi.
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,9 +6,30 @@ datasource db {
   provider = "postgresql"
   url = env("DATABASE_URL")
 }
-model IdentityState {
-  id String @id
-  data Json
+model Account {
+  id             String           @id
+  email          String           @unique
+  name           String
+  role           String
+  salt           String
+  passwordHash   String
+  birthDate      DateTime?        @db.Date
+  heightCm       Float?
+  resetDigest    String?          @unique
+  resetIssuedAt  DateTime?
+  resetExpiresAt DateTime?
+  sessions       AccountSession[]
+}
+
+model AccountSession {
+  id        String   @id
+  userId    String
+  csrfToken String
+  expiresAt DateTime
+  account   Account  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 model PatientState {
   id String @id
