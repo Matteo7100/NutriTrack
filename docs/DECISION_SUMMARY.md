@@ -1,4 +1,9 @@
 # Riepilogo delle scelte di NutriTrack
+Il 10 novembre 2026 sono stati aggiunti registrazione dal sito, recupero via email, profilo paziente, circonferenze, foto private e dashboard per ruolo. Identity gestisce i nuovi dati dell’account, Progress conserva le foto in una tabella dedicata e il composition root collega Resend per la sola consegna delle email. [ADR-033](adr/ADR-033.md)
+
+Esito refactoring GoF del 4 novembre: 71 test PASS, build e smoke offline PASS. I diagrammi dipendono dalle interfacce SyncObserver/Repository/UnitOfWork, con implementazioni concrete collegate per realizzazione; Application riceve StorageFactory. Nessun nuovo servizio, dipendenza o cambiamento allo schema dei dati.
+4 novembre 2026, stato corrente dopo il refactoring autorizzato: sei GoF motivati — Facade, Adapter, Command, Strategy, Observer e Abstract Factory. [Confronto dei 22, ruoli, vantaggi e diagrammi](DESIGN_PATTERNS.md); [percorso pratico prima/dopo](increments/refactor-patterns.md). Le regole di prodotto restano quelle concordate, senza nuove feature.
+Storia del confronto nello stesso giorno: la prima classificazione del codice precedente riconosceva due GoF, Adapter e Facade; il successivo mandato introduce Command/Strategy/Observer per l'offline e Abstract Factory per lo storage. Modular monolith, repository, UnitOfWork, DI e idempotenza restano categorie distinte.
 pnpm verifyDepsBeforeRun=false nei due progetti: l'installazione è un passo esplicito (`install:all` con lockfile), non un effetto nascosto di test/start. Scelta verificata per evitare reinstallazioni implicite con store diverso nell'ambiente Windows; dipendenze e lockfile restano obbligatori.
 Playwright1.62.1 aggiunto come strumento di sviluppo per rendere ripetibile lo smoke browser con Edge, senza dipendenza dai tool interni di Codex. In precedenza la prova è stata eseguita con la medesima versione fornita dal runtime. La prova scrive solo dati dimostrativi locali e non cancella registrazioni. Bug osservato in prova: null del piano serializzato esplicitamente JSON per rispettare il contratto.
 ## Dettagli implementativi del completamento
@@ -18,7 +23,7 @@ Provenienza di PostgreSQL, licenze e assenza di servizi a pagamento: [infrastrut
 Documento centrale da aggiornare insieme al codice. Stato aggiornato al 30 ottobre 2026. Le ADR conservano contesto, motivazioni e conseguenze; questo file permette di ritrovare ogni scelta senza rileggere tutta la conversazione.
 
 ## Perimetro vincolante
-La fonte funzionale è [requirements.md](requirements.md), con FR-01..16, BR-01..11 e NFR-01..07; gli obiettivi degli attori sono in [use-cases.md](use-cases.md). Le decisioni successive precisano quel perimetro, senza aggiungere funzionalità di prodotto.
+I requisiti correnti sono FR-01..21, BR-01..11 e NFR-01..07. Gli obiettivi degli attori della prima versione sono nei casi d’uso. [Requisiti](requirements.md), [casi d’uso](use-cases.md)
 
 La versione iniziale comprende Patient e Nutritionist, associazione con accettazione del Patient, piani versionati, diario con privacy opzionale, peso storico, consultazione e inserimenti offline supportati con sincronizzazione. Sono esclusi Admin, pagamenti, videochiamate, AI, riconoscimento immagini, social, chat, wearable, spesa automatica e inventario. Modifica/cancellazione di pasti e misurazioni e programmazione/retrodatazione dei piani restano rinviate come già concordato. Il cambio di professionista richiede un nuovo consenso alla condivisione; non significa introdurre un nuovo sistema universale di permessi.
 
@@ -53,6 +58,18 @@ La versione iniziale comprende Patient e Nutritionist, associazione con accettaz
 | [026](adr/ADR-026.md) | Account predisposti da CLI, sessioni 8 ore, CSRF | Autenticazione concreta senza registrazione pubblica non richiesta. |
 | [027](adr/ADR-027.md) | Cache personale e coda IndexedDB, shell offline | Garantire offline senza memorizzare dati dei pazienti sul client Nutritionist. |
 | [028](adr/ADR-028.md) | Completamento integrato richiesto il 30 ottobre | Superare la precedente pausa tra incrementi mantenendo documentazione studiabile. |
+| [029](adr/ADR-029.md) | Command per le due operazioni offline | Incapsulare invio pasto/peso senza cambiare il DTO persistito. |
+| [030](adr/ADR-030.md) | Strategy per backoff/login/stop | Separare la politica di retry dal batch; vantaggi e costi verificabili per input deterministici. |
+| [031](adr/ADR-031.md) | Observer locale con due subscriber reali | Aggiornare coda e dati Patient senza coupling sul booleano changed. |
+| [032](adr/ADR-032.md) | Abstract Factory dei cinque repository e UnitOfWork | Comporre prodotti coerenti e tipizzati della famiglia memory/PostgreSQL. |
+| [033](adr/ADR-033.md) | Invio di email di recupero e archivio fotografico di Progress | Delegare la consegna a Resend e separare foto e misurazioni nel database. |
+
+## Dettagli del refactoring del 4 novembre
+- SyncCommand.execute incapsula l'invio; RecordMealCommand e RecordWeightCommand ricevono ApiClient. restoreCommand ricrea dal DTO ma non è un Factory Method GoF e non aggiunge undo.
+- RetryContext seleziona RetryStrategy: decide restituisce RetryDecision con status, nextAttempt e stopBatch. BackoffRetryStrategy gestisce transitori; WaitForLoginStrategy ferma il batch per login; StopRetryStrategy conserva conflitti/dinieghi. Il vantaggio della sostituzione dell'algoritmo non modifica idempotenza, privacy o immutabilità del piano.
+- SyncEngine è invoker e subject. QueuePanelModel e PatientDataRefresher sono i due observer realmente collegati da App, con filtro account, dispose e unsubscribe; Promise.allSettled isola un fallimento di observer dal comando già confermato. Non è un bus di eventi di dominio.
+- StorageFactory produce cinque repository tipizzati e la UnitOfWork dello stesso contesto. MemoryStorageFactory/PostgresStorageFactory sono famiglie concrete; MemoryRepository/PostgresRepository mantengono il ruolo Adapter. Application usa i prodotti astratti e non sceglie chiavi storage. Gli alias Persistence precedenti sono compatibilità, non fallback.
+- Formato IndexedDB, operationId e payload, struttura dello stato PostgreSQL, locking e business rule rimangono vincolanti. I nuovi test dimostrano i collaboratori senza sostituire le verifiche reali browser/PostgreSQL.
 
 ## Decisioni implementative da spiegare all'esame
 - I public entry point dei moduli espongono servizi e tipi; non espongono Prisma. Il tipo Repository appartiene al contratto tecnico, l'adapter è infrastrutturale.

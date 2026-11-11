@@ -12,10 +12,11 @@ export interface Entry {
   id: string; patientId: string; operationId: string; consumptionTime: number;
   createdAt: number; actualConsumption: string; mealPlanVersionId: string | null;
 }
-export interface Measurement {
+export type MeasurementType = 'WEIGHT' | 'ARM_CIRCUMFERENCE' | 'TORSO_CIRCUMFERENCE';
+export type Measurement = {
   id: string; patientId: string; operationId: string; timestamp: number;
-  value: number; type: 'WEIGHT'; unit: 'KG';
-}
+  value: number;
+} & ({ type: 'WEIGHT'; unit: 'KG' } | { type: Exclude<MeasurementType, 'WEIGHT'>; unit: 'CM' });
 export interface Invitation { id: string; nutritionistName?: string; nutritionistId?: string; status?: string }
 export interface Snapshot {
   user: User; active: Version | null; history: Version[]; diary: Entry[];

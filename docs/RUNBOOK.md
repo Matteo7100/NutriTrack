@@ -1,5 +1,5 @@
 # Avvio, verifica e dimostrazione
-Guida pratica per eseguire NutriTrack e ripetere i controlli. Comandi dalla cartella principale della repository, salvo indicazione diversa. Non occorre un account cloud, una API key o un provider di autenticazione esterno.
+Guida pratica per eseguire NutriTrack e ripetere i controlli. Comandi dalla cartella principale della repository, salvo indicazione diversa. L’accesso usa gli account locali. La consegna delle email di recupero richiede la configurazione di Resend.
 
 ## 1. Strumenti
 Servono Node.js 24.x, pnpm 11.19.0 e PostgreSQL 16. Docker Desktop è il modo proposto per il database locale; un PostgreSQL esistente è utilizzabile cambiando DATABASE_URL. Git serve per collaborare, VS Code per leggere/modificare il codice.
@@ -30,6 +30,12 @@ NODE_ENV=development
 
 Le credenziali sono esclusivamente dimostrative e corrispondono a compose.yaml. Il file .env non va versionato. Il backend legge l'ambiente dalla propria cartella; gli script principali inoltrano i comandi ad apps/api.
 
+### Recupero password via email
+
+In `apps/api/.env` impostare `PUBLIC_APP_URL` all’indirizzo dell’app raggiungibile dal destinatario. Per una prova sullo stesso PC usare `http://127.0.0.1:3000/`. In produzione è richiesto HTTPS. Impostare `RESEND_API_KEY` con la chiave server di Resend e `PASSWORD_RESET_FROM` con un indirizzo mittente del dominio verificato su Resend. Riavviare il backend dopo la modifica. Senza questi valori il sito segnala che il recupero via email è temporaneamente indisponibile.
+
+Per la prova, registrare un account con una casella che si può consultare. Dal login aprire **Password dimenticata?**, inserire l’indirizzo e seguire il link ricevuto. Il link scade dopo 30 minuti e può essere usato una sola volta. Dopo il salvataggio accedere con la nuova password.
+
 ## 3. Database
 Avviare Docker Desktop, quindi:
 
@@ -41,7 +47,7 @@ pnpm.cmd db:migrate
 pnpm.cmd db:seed
 ```
 
-Il database pubblica la porta 15432 solo sul loopback. db:generate genera il client Prisma, db:migrate applica migrazioni versionate, db:seed predispone gli account della demo. Il volume Docker conserva dati quando si arresta il container. Non cancellare volumi per risolvere un normale errore di avvio.
+Il database pubblica la porta 15432 solo sul loopback. `db:generate` genera il client Prisma, `db:migrate` applica le migrazioni versionate e `db:seed` predispone gli account della demo. Anche un database già configurato va migrato per creare la tabella delle foto dei progressi. Il volume Docker conserva dati quando si arresta il container.
 
 ## 4. Compilazione e app completa
 `pnpm check` esegue normalmente i test che non richiedono PostgreSQL e la pipeline HTTP locale; il test di integrazione PostgreSQL viene saltato se TEST_DATABASE_URL non è impostata. Per includerlo dopo la migrazione, in PowerShell impostare `$env:TEST_DATABASE_URL = 'postgresql://nutritrack:nutritrack_local@localhost:15432/nutritrack?schema=public'`, quindi eseguire `pnpm.cmd check`. Quel test aggiunge solo account con email uniche al database demo e non cancella dati.
@@ -56,7 +62,7 @@ Aprire [http://127.0.0.1:3000](http://127.0.0.1:3000). Il backend serve anche il
 Per arrestare il server usare Ctrl+C nel suo terminale. Per fermare il database conservando il volume: `docker compose stop db`.
 
 ## 5. Sviluppo con ricaricamento
-Per ripetere lo smoke automatico completo con app già avviata: `pnpm.cmd --dir apps/web test:browser`. Richiede Microsoft Edge installato, usa i soli account demo e lascia i dati creati visibili; non ripristina lo stato iniziale. Lo script ha passato il ciclo offline e salva uno screenshot in docs/evidence/browser-patient.png. Playwright è una dipendenza di sviluppo gratuita; non è un servizio cloud. Nessuna chiave API necessaria.
+Per ripetere lo smoke automatico con l’app già avviata, eseguire `pnpm.cmd --dir apps/web test:browser`. Richiede Microsoft Edge, usa gli account demo e crea un paziente con email univoca per provare registrazione e profilo. I dati generati restano nel database di prova. Lo screenshot viene salvato in `docs/evidence`, oppure nella cartella indicata da `SMOKE_EVIDENCE_DIR`.
 In due terminali distinti:
 
 ```powershell
@@ -78,7 +84,7 @@ Password comune dei soli account dimostrativi: `DemoNutriTrack2026!`.
 | patient@example.test | Patient | Accetta invito, diario e peso |
 | unassigned@example.test | Patient | Dimostra assenza di assegnazione e limiti di accesso |
 
-Gli account sono inizialmente non associati: il Nutritionist invita patient@example.test; il Patient accede e accetta l'invito. La preferenza diario resta disabilitata. Non viene creato un Admin né permessa una registrazione pubblica autonoma come Nutritionist.
+Gli account demo sono inizialmente non associati. Il nutrizionista invita `patient@example.test` e il paziente accetta l’invito. La condivisione del diario parte disabilitata. Dal login si può creare un nuovo account paziente o nutrizionista.
 Nell'ambiente dell'autore lo smoke ha già associato i due utenti demo, pubblicato versioni, attivato sharing e registrato pasti/peso. Sono dati di prova, non il default dei nuovi utenti. Il seed non azzera dati; per mostrare la scelta iniziale usare un nuovo Patient predisposto via CLI oppure disabilitare sharing dal Patient demo. Non cancellare il volume per preparare l'esposizione.
 
 Per predisporre un altro account locale tramite CLI, impostare la password nella variabile d'ambiente e fornire email, nome e ruolo:
@@ -97,7 +103,7 @@ Questo è provisioning della demo, non un'interfaccia di amministrazione aggiunt
 3. Patient: consulta il piano e registra consumo reale con data/ora; mostra propria entry e versione risolta dal server.
 4. Nutritionist: tenta di consultare diario senza consenso. Deve apparire un diniego distinto da un diario vuoto.
 5. Patient: abilita condivisione del diario intero, incluso storico. Nutritionist: ricarica e può consultarlo.
-6. Patient: registra peso in kg; Nutritionist: lo consulta anche se il diario viene nuovamente reso privato.
+6. Paziente: registra peso e circonferenze dalla sezione **Misurazioni e progressi**. Il nutrizionista può consultarli anche quando il diario è privato. La galleria fotografica è accessibile solo al paziente che la usa.
 7. Nutritionist: modifica il piano creando v2. Mostra storico, parent e differenze senza riscrivere v1.
 8. Due finestre Nutritionist con la stessa base: pubblicare dalla prima, poi tentare dalla seconda. La seconda riceve conflitto e deve ricaricare.
 9. Terminare l'associazione tramite il comando previsto, verificare blocco degli accessi e conservazione dei dati. Una nuova associazione non eredita consenso diario precedente.

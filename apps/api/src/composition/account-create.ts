@@ -1,7 +1,7 @@
-/** Provisioning locale: nessun ruolo Admin o registrazione pubblica inventati. */
+/** Provisioning locale alternativo alla registrazione tramite sito. */
 import 'dotenv/config';
 import { Application } from './application';
-import { PostgresPersistence } from '../infrastructure/persistence';
+import { PostgresStorageFactory } from '../infrastructure/persistence';
 import { Role } from '../shared/contracts';
 async function main() {
   const [email, name, role] = process.argv.slice(2);
@@ -9,7 +9,7 @@ async function main() {
   if (!email || !name || !['PATIENT', 'NUTRITIONIST'].includes(role) || !password) {
     throw new Error('Uso: ACCOUNT_PASSWORD da ambiente, account:create email nome PATIENT|NUTRITIONIST.');
   }
-  const persistence = new PostgresPersistence();
+  const persistence = new PostgresStorageFactory();
   try { await persistence.run(() => new Application(persistence).identity.provision(email, password, name, role as Role)); }
   finally { await persistence.close(); }
 }

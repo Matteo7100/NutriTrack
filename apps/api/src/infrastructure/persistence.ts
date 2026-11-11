@@ -1,25 +1,30 @@
 /**
- * Adapter Repository e Unit of Work: un repository per ogni modulo, uno stesso
- * confine transazionale per i flussi applicativi. I servizi non conoscono Prisma.
- * Il lock globale è una scelta conservativa per il volume del progetto d'esame:
- * impedisce race tra versione, privacy e sync; non è una soluzione per alto traffico.
+ * Concrete Factory delle famiglie Memory e PostgreSQL. Ogni factory crea i
+ * repository dei moduli e una UnitOfWork collegati allo STESSO contesto transazionale.
+ * Cambiare famiglia nel composition root non modifica i servizi o il formato dati.
+ * PostgreSQL conserva lock advisory + ReadCommitted; Memory replica commit/rollback.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { Repository } from '../shared/contracts';
 import { UnitOfWork } from '../shared/unit-of-work';
+import { createEmptyIdentityState } from '../modules/identity/public';
+import { createEmptyPatientState } from '../modules/patient-management/public';
+import { createEmptyMealPlanningState } from '../modules/meal-planning/public';
+import { createEmptyDiaryState } from '../modules/diary/public';
+import { createEmptyProgressState, StoredProgressPhoto } from '../modules/progress/public';
+import { StorageFactory } from './storage-factory';
+import { MemoryRepository, MemoryState, ModuleKey, PostgresRepository, PrismaStateDelegate } from './repository-adapters';
+import { MemoryProgressPhotoRepository, PostgresProgressPhotoRepository } from './progress-photo-repositories';
 
-export type ModuleKey = 'identity' | 'patients' | 'plans' | 'diary' | 'progress';
-export interface Persistence extends UnitOfWork {
-  repository<T>(key: ModuleKey, initial: () => T): Repository<T>;
-  close(): Promise<void>;
-}
+export type { ModuleKey } from './repository-adapters';
+export type { StorageFactory } from './storage-factory';
 
-/** Fake transazionale usato esclusivamente da test: rollback e isolamento seriale. */
-export class MemoryPersistence implements Persistence {
-  private data = new Map<ModuleKey, unknown>();
-  private readonly context = new AsyncLocalStorage<Map<ModuleKey, unknown>>();
+/** Prodotto transazionale della famiglia Memory: fake usato esclusivamente nei test. */
+export class MemoryUnitOfWork implements UnitOfWork {
+  private data: MemoryState = new Map();
   private queue: Promise<void> = Promise.resolve();
+  constructor(private readonly context: AsyncLocalStorage<MemoryState>) {}
   async run<T>(operation: () => Promise<T>): Promise<T> {
     if (this.context.getStore()) return operation();
     const previous = this.queue;
@@ -29,61 +34,80 @@ export class MemoryPersistence implements Persistence {
     try {
       const snapshot = structuredClone(this.data);
       const result = await this.context.run(snapshot, operation);
-      this.data = snapshot;
+      this.data = snapshot; // Commit soltanto quando il caso d'uso termina senza errori.
       return result;
     } finally { release(); }
   }
-  repository<T>(key: ModuleKey, initial: () => T): Repository<T> {
-    const state = () => {
-      const context = this.context.getStore();
-      if (!context) throw new Error('Repository usato fuori dalla UnitOfWork.');
-      return context;
-    };
-    return {
-      get: async () => structuredClone((state().get(key) as T | undefined) ?? initial()),
-      save: async value => { state().set(key, structuredClone(value)); },
-    };
-  }
-  async close() { /* Nessuna connessione nel fake. */ }
 }
 
-export class PostgresPersistence implements Persistence {
-  private readonly client = new PrismaClient();
-  private readonly context = new AsyncLocalStorage<Prisma.TransactionClient>();
+export class MemoryStorageFactory implements StorageFactory, UnitOfWork {
+  private readonly context = new AsyncLocalStorage<MemoryState>();
+  private readonly unitOfWork = new MemoryUnitOfWork(this.context);
+  private repository<T>(key: ModuleKey | 'progressPhotos', initial: () => T): Repository<T> {
+    return new MemoryRepository(key, initial, () => {
+      const state = this.context.getStore();
+      if (!state) throw new Error('Repository usato fuori dalla UnitOfWork.');
+      return state;
+    });
+  }
+  createIdentityRepository() { return this.repository('identity', createEmptyIdentityState); }
+  createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
+  createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
+  createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }
+  createProgressRepository() { return this.repository('progress', createEmptyProgressState); }
+  createProgressPhotoRepository() { return new MemoryProgressPhotoRepository(this.repository<StoredProgressPhoto[]>('progressPhotos', () => [])); }
+  // Tutti i client della stessa factory condividono questo prodotto e il suo stato.
+  createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
+  async close() { /* Nessuna connessione nel fake. */ }
+  // Compatibilità con gli avvii e test storici che chiamano direttamente factory.run.
+  run<T>(operation: () => Promise<T>): Promise<T> { return this.unitOfWork.run(operation); }
+}
+
+/** Prodotto transazionale PostgreSQL: nessun cambiamento all'isolamento esistente. */
+export class PostgresUnitOfWork implements UnitOfWork {
+  constructor(private readonly client: PrismaClient, private readonly context: AsyncLocalStorage<Prisma.TransactionClient>) {}
   async run<T>(operation: () => Promise<T>): Promise<T> {
     if (this.context.getStore()) return operation();
     return this.client.$transaction(async tx => {
-      // Lock transazionale rilasciato anche in rollback. Prima del primo read:
-      // al livello ReadCommitted i successivi read vedono l'ultimo commit.
+      // Lock prima del primo read: richieste concorrenti vedono l'ultimo commit.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(72564103)`;
       return this.context.run(tx, operation);
     }, { isolationLevel: 'ReadCommitted', maxWait: 30000, timeout: 30000 });
   }
-  repository<T>(key: ModuleKey, initial: () => T): Repository<T> {
-    const delegate = () => {
-      const tx = this.context.getStore();
-      if (!tx) throw new Error('Repository usato fuori dalla UnitOfWork.');
-      // Selezione chiusa e statica: nessun nome SQL controllato dal client.
+}
+
+export class PostgresStorageFactory implements StorageFactory, UnitOfWork {
+  private readonly client = new PrismaClient();
+  private readonly context = new AsyncLocalStorage<Prisma.TransactionClient>();
+  private readonly unitOfWork = new PostgresUnitOfWork(this.client, this.context);
+  private currentTransaction(): Prisma.TransactionClient {
+    const tx = this.context.getStore();
+    if (!tx) throw new Error('Repository usato fuori dalla UnitOfWork.');
+    return tx;
+  }
+  private repository<T>(key: ModuleKey, initial: () => T): Repository<T> {
+    return new PostgresRepository(initial, () => {
+      const tx = this.currentTransaction();
+      // Mappa infrastrutturale chiusa: ogni prodotto riceve esclusivamente il model proprio.
       const models = { identity: tx.identityState, patients: tx.patientState,
         plans: tx.mealPlanningState, diary: tx.diaryState, progress: tx.progressState };
-      // I cinque model hanno la stessa forma; restringiamo l'API comune per
-      // evitare l'unione delle firme generiche generate da Prisma.
-      return models[key] as unknown as {
-        findUnique(args: { where: { id: string } }): Promise<{ data: Prisma.JsonValue } | null>;
-        upsert(args: { where: { id: string }; create: { id: string; data: Prisma.InputJsonValue }; update: { data: Prisma.InputJsonValue } }): Promise<unknown>;
-      };
-    };
-    return {
-      get: async () => {
-        const row = await delegate().findUnique({ where: { id: 'root' } });
-        return row ? structuredClone(row.data) as T : initial();
-      },
-      save: async value => {
-        // Stati dei moduli serializzabili, nessuna funzione o Date persistita.
-        const data = JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
-        await delegate().upsert({ where: { id: 'root' }, create: { id: 'root', data }, update: { data } });
-      },
-    };
+      return models[key] as unknown as PrismaStateDelegate;
+    });
   }
+  createIdentityRepository() { return this.repository('identity', createEmptyIdentityState); }
+  createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
+  createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
+  createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }
+  createProgressRepository() { return this.repository('progress', createEmptyProgressState); }
+  createProgressPhotoRepository() { return new PostgresProgressPhotoRepository(() => this.currentTransaction().progressPhoto); }
+  createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
   async close() { await this.client.$disconnect(); }
+  run<T>(operation: () => Promise<T>): Promise<T> { return this.unitOfWork.run(operation); }
 }
+
+/** Nomi storici mantenuti per compatibilità; il client nuovo usa StorageFactory. */
+export interface Persistence extends StorageFactory, UnitOfWork {}
+/** @deprecated Usare MemoryStorageFactory per rendere esplicita la famiglia. */
+export class MemoryPersistence extends MemoryStorageFactory implements Persistence {}
+/** @deprecated Usare PostgresStorageFactory per rendere esplicita la famiglia. */
+export class PostgresPersistence extends PostgresStorageFactory implements Persistence {}

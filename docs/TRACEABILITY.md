@@ -1,4 +1,31 @@
 # Tracciabilità requisiti, implementazione e verifiche
+## Profili, account e progressi
+
+| Requisiti | Implementazione | Prove |
+|---|---|---|
+| FR-17/18/19 | Modulo Identity, `AccountAccess` e `PatientProfile` | `identity-http.spec.ts` per ruoli, modifica del profilo, recupero e nuova sessione. Smoke browser per registrazione e profilo. |
+| FR-12/13/14/20 | Modulo Progress, `ProgressPanel` e `ProgressPhotos` | `progress.spec.ts` e smoke browser per misurazioni, foto e riconnessione. `postgres.spec.ts` include la persistenza binaria. |
+| FR-21 | Navigazione per ruolo in `Workspace` | Smoke browser per sezioni paziente e nutrizionista e layout mobile. |
+
+Verifica del 10 novembre 2026. `pnpm check` ha superato 41 test API e 34 test web. `pnpm build` è riuscito. Lo smoke Edge è passato con storage in memoria, compreso il ripristino dell’app offline e la sincronizzazione storica. La prova di recupero nel browser ha usato un trasporto email di test. Prisma ha validato lo schema e il diff SQL della migrazione. I tre test con PostgreSQL reale richiedono un database attivo e sono stati saltati in questa esecuzione.
+
+## Refactoring del 4 novembre 2026
+Nessuna feature o requisito aggiunto. La struttura è affinata con quattro GoF in più: Command/Strategy/Observer nell'offline e Abstract Factory nello storage; Facade e Adapter restano presenti. [Guida e diagrammi](DESIGN_PATTERNS.md), [spiegazione pratica](increments/refactor-patterns.md), ADR-029..032.
+
+| Requisiti interessati | Nuova evidenza strutturale | Prova pertinente |
+|---|---|---|
+| FR-13/14, UC-06, NFR-07 | SyncCommand e comandi concreti; SyncEngine invoker | sync/commands.test.ts e sync/sync-engine.test.ts nel frontend |
+| FR-15, BR-08/09 | RetryStrategy, RetryContext e tre politiche; ID invariato | sync/retry.test.ts, test motore e deduplicazione server già esistente |
+| FR-14, NFR-07, isolamento BR-02 | Observer reali QueuePanelModel e PatientDataRefresher con account scope | sync/sync-engine.test.ts e smoke browser |
+| NFR-01/02/03/05 | StorageFactory, prodotti tipizzati, adapter e UnitOfWork coerenti | factory.spec.ts backend e suite PostgreSQL |
+
+Verifica effettiva del 4 novembre 2026: **37 test backend PASS** in 9 suite, compresi HTTP e PostgreSQL reale (TEST_DATABASE_URL impostata); **34 test frontend PASS** in 5 file; controllo tipi e build backend/frontend OK. Totale **71 test**, ossia 29 in più dei 42 precedenti. I nuovi casi verificano la coerenza di 5 repository con la propria UnitOfWork, rollback e isolamento tra factory, ripristino e incapsulamento dei Command, sostituzione delle Strategy, notifiche post-persistenza e unsubscribe degli Observer, errori degli observer e cambio account durante gli await.
+
+Smoke browser Edge/Playwright: **PASS** dopo il refactoring. Verificati inviti/associazione, pubblicazione, privacy/sharing, registrazione offline, reload senza rete, nuova versione e sincronizzazione storica. L'asserzione aggiuntiva verifica che il pasto appaia nel diario confermato con il numero della versione precedente: dimostra il collegamento reale degli Observer in App, non solo l'invio al server. Nessun pageerror. [Screenshot aggiornato](evidence/browser-patient.png).
+
+Nessuna dipendenza o funzione di prodotto aggiunta; nessuna migrazione o modifica al formato della coda. Prove eseguite su questo ambiente Windows/Edge/PostgreSQL 16; non sono benchmark né verifiche di tutti i browser. I conteggi e le prove riportati sotto restano la storia del 30 ottobre, non il totale aggiornato.
+
+## Tracciabilità del completamento originario
 Aggiornamento: 30 ottobre 2026. Gli identificatori della baseline non sono rinumerati. Le tabelle indicano dove si trova l'implementazione e come osservarla; l'esito effettivo delle esecuzioni è riportato separatamente in fondo.
 
 ## Punti di ingresso del codice

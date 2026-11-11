@@ -27,3 +27,15 @@ model ProgressState {
   id String @id
   data Json
 }
+model ProgressPhoto {
+  id          String   @id
+  patientId   String
+  operationId String
+  timestamp   DateTime
+  createdAt   DateTime
+  mimeType    String
+  bytes       Bytes
+
+  @@unique([patientId, operationId])
+  @@index([patientId, timestamp])
+}

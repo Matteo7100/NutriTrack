@@ -1,11 +1,17 @@
-/** Composition root: unico punto che collega adapter privati e contratti dei moduli. */
-import { Persistence } from '../infrastructure/persistence';
+/**
+ * Client dell'Abstract Factory: richiede i repository dei cinque moduli e la
+ * UnitOfWork senza conoscere classi concrete, chiavi interne o tecnologia storage.
+ * Rimane il composition root che collega servizi attraverso i contratti pubblici.
+ */
+import { StorageFactory } from '../infrastructure/storage-factory';
+import type { PasswordResetSender } from '../infrastructure/password-reset-mail';
+import { UnitOfWork } from '../shared/unit-of-work';
 import { Clock } from '../shared/contracts';
-import { IdentityService, createEmptyIdentityState } from '../modules/identity/public';
-import { PatientService, createEmptyPatientState } from '../modules/patient-management/public';
-import { MealPlanningService, createEmptyMealPlanningState } from '../modules/meal-planning/public';
-import { DiaryService, createEmptyDiaryState } from '../modules/diary/public';
-import { ProgressService, createEmptyProgressState } from '../modules/progress/public';
+import { IdentityService } from '../modules/identity/public';
+import { PatientService } from '../modules/patient-management/public';
+import { MealPlanningService } from '../modules/meal-planning/public';
+import { DiaryService } from '../modules/diary/public';
+import { ProgressPhotoService, ProgressService } from '../modules/progress/public';
 
 export class Application {
   readonly identity: IdentityService;
@@ -13,11 +19,17 @@ export class Application {
   readonly plans: MealPlanningService;
   readonly diary: DiaryService;
   readonly progress: ProgressService;
-  constructor(readonly persistence: Persistence, clock: Clock = Date.now) {
-    this.identity = new IdentityService(persistence.repository('identity', createEmptyIdentityState), clock);
-    this.patients = new PatientService(persistence.repository('patients', createEmptyPatientState), this.identity, clock);
-    this.plans = new MealPlanningService(persistence.repository('plans', createEmptyMealPlanningState), this.patients, clock);
-    this.diary = new DiaryService(persistence.repository('diary', createEmptyDiaryState), this.patients, this.plans, clock);
-    this.progress = new ProgressService(persistence.repository('progress', createEmptyProgressState), this.patients, clock);
+  readonly progressPhotos: ProgressPhotoService;
+  readonly persistence: UnitOfWork & { close(): Promise<void> };
+  constructor(storage: StorageFactory, clock: Clock = Date.now, readonly sendPasswordReset?: PasswordResetSender) {
+    const unitOfWork = storage.createUnitOfWork();
+    // Conserva l'API application.persistence.run/close usata dall'adapter HTTP.
+    this.persistence = { run: operation => unitOfWork.run(operation), close: () => storage.close() };
+    this.identity = new IdentityService(storage.createIdentityRepository(), clock);
+    this.patients = new PatientService(storage.createPatientRepository(), this.identity, clock);
+    this.plans = new MealPlanningService(storage.createMealPlanRepository(), this.patients, clock);
+    this.diary = new DiaryService(storage.createDiaryRepository(), this.patients, this.plans, clock);
+    this.progress = new ProgressService(storage.createProgressRepository(), this.patients, clock);
+    this.progressPhotos = new ProgressPhotoService(storage.createProgressPhotoRepository(), clock);
   }
 }
