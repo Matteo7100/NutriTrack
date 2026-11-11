@@ -14,7 +14,8 @@ import { createEmptyMealPlanningState } from '../modules/meal-planning/public';
 import { createEmptyDiaryState } from '../modules/diary/public';
 import { createEmptyProgressState, StoredProgressPhoto } from '../modules/progress/public';
 import { StorageFactory } from './storage-factory';
-import { MemoryRepository, MemoryState, ModuleKey, PostgresRepository, PrismaStateDelegate } from './repository-adapters';
+import { MemoryRepository, MemoryKey, MemoryState, ModuleKey, PostgresRepository, PrismaStateDelegate } from './repository-adapters';
+import { MemoryIdentityRepository, PostgresIdentityRepository } from './identity-repositories';
 import { MemoryProgressPhotoRepository, PostgresProgressPhotoRepository } from './progress-photo-repositories';
 
 export type { ModuleKey } from './repository-adapters';
@@ -43,14 +44,14 @@ export class MemoryUnitOfWork implements UnitOfWork {
 export class MemoryStorageFactory implements StorageFactory, UnitOfWork {
   private readonly context = new AsyncLocalStorage<MemoryState>();
   private readonly unitOfWork = new MemoryUnitOfWork(this.context);
-  private repository<T>(key: ModuleKey | 'progressPhotos', initial: () => T): Repository<T> {
+  private repository<T>(key: MemoryKey, initial: () => T): Repository<T> {
     return new MemoryRepository(key, initial, () => {
       const state = this.context.getStore();
       if (!state) throw new Error('Repository usato fuori dalla UnitOfWork.');
       return state;
     });
   }
-  createIdentityRepository() { return this.repository('identity', createEmptyIdentityState); }
+  createIdentityRepository() { return new MemoryIdentityRepository(this.repository('identity', createEmptyIdentityState)); }
   createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
   createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
   createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }
@@ -89,12 +90,12 @@ export class PostgresStorageFactory implements StorageFactory, UnitOfWork {
     return new PostgresRepository(initial, () => {
       const tx = this.currentTransaction();
       // Mappa infrastrutturale chiusa: ogni prodotto riceve esclusivamente il model proprio.
-      const models = { identity: tx.identityState, patients: tx.patientState,
+      const models = { patients: tx.patientState,
         plans: tx.mealPlanningState, diary: tx.diaryState, progress: tx.progressState };
       return models[key] as unknown as PrismaStateDelegate;
     });
   }
-  createIdentityRepository() { return this.repository('identity', createEmptyIdentityState); }
+  createIdentityRepository() { return new PostgresIdentityRepository(() => this.currentTransaction()); }
   createPatientRepository() { return this.repository('patients', createEmptyPatientState); }
   createMealPlanRepository() { return this.repository('plans', createEmptyMealPlanningState); }
   createDiaryRepository() { return this.repository('diary', createEmptyDiaryState); }

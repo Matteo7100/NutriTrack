@@ -6,6 +6,7 @@
  */
 import { Repository } from '../src/shared/contracts';
 import { IdentityService, createEmptyIdentityState } from '../src/modules/identity/public';
+import { MemoryIdentityRepository } from '../src/infrastructure/identity-repositories';
 import { PatientService, createEmptyPatientState } from '../src/modules/patient-management/public';
 import { MealPlanningService, createEmptyMealPlanningState, PlanContent } from '../src/modules/meal-planning/public';
 import { DiaryService, createEmptyDiaryState } from '../src/modules/diary/public';
@@ -20,7 +21,7 @@ const content = (quantity = 80): PlanContent => ({ meals: [{ name: 'Colazione', 
 async function fixture() {
   let now = Date.parse('2026-10-05T08:00:00Z');
   const clock = () => now;
-  const identity = new IdentityService(fake(createEmptyIdentityState()), clock);
+  const identity = new IdentityService(new MemoryIdentityRepository(fake(createEmptyIdentityState())), clock);
   const patients = new PatientService(fake(createEmptyPatientState()), identity, clock);
   const plans = new MealPlanningService(fake(createEmptyMealPlanningState()), patients, clock);
   const diary = new DiaryService(fake(createEmptyDiaryState()), patients, plans, clock);

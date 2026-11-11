@@ -37,7 +37,9 @@ describe('Abstract Factory: famiglia Memory coerente', () => {
     await factory.createUnitOfWork().run(async () => {
       expect((await otherClient.diary.list(nutritionist, patient.id))[0].mealPlanVersionId).toBe(version.id);
       expect(await otherClient.progress.list(nutritionist, patient.id)).toHaveLength(1);
-      expect((await factory.createIdentityRepository().get()).accounts).toHaveLength(2);
+      const identity = factory.createIdentityRepository();
+      expect((await identity.findAccountById(patient.id))?.email).toBe(patient.email);
+      expect((await identity.findAccountById(nutritionist.id))?.email).toBe(nutritionist.email);
       expect((await factory.createPatientRepository().get()).assignments).toHaveLength(1);
       expect((await factory.createMealPlanRepository().get()).versions).toHaveLength(1);
       expect((await factory.createDiaryRepository().get()).entries).toHaveLength(1);
@@ -65,7 +67,7 @@ describe('Abstract Factory: famiglia Memory coerente', () => {
     const rightApp = new Application(right, () => now);
     expect(await right.createUnitOfWork().run(() => rightApp.identity.findUserByEmail(patient.email))).toBeNull();
     // Un repository della famiglia sinistra non funziona nella transazione destra.
-    await expect(right.createUnitOfWork().run(() => left.createIdentityRepository().get())).rejects.toThrow('UnitOfWork');
+    await expect(right.createUnitOfWork().run(() => left.createIdentityRepository().findAccountById(patient.id))).rejects.toThrow('UnitOfWork');
     await expect(left.createDiaryRepository().get()).rejects.toThrow('UnitOfWork');
   });
 
@@ -109,6 +111,6 @@ postgres('Abstract Factory: stessa famiglia PostgreSQL reale', () => {
       expect(await otherApp.diary.sharing(patient)).toEqual({ enabled: true });
       expect(await otherApp.progress.list(patient, patient.id)).toHaveLength(1);
     });
-    await expect(second.createUnitOfWork().run(() => factory.createIdentityRepository().get())).rejects.toThrow('UnitOfWork');
+    await expect(second.createUnitOfWork().run(() => factory.createIdentityRepository().findAccountById(patient.id))).rejects.toThrow('UnitOfWork');
   }, 30000);
 });

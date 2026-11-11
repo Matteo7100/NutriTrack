@@ -7,11 +7,11 @@
 import type { Prisma } from '@prisma/client';
 import { Repository } from '../shared/contracts';
 
-export type ModuleKey = 'identity' | 'patients' | 'plans' | 'diary' | 'progress';
-type MemoryKey = ModuleKey | 'progressPhotos';
+export type ModuleKey = 'patients' | 'plans' | 'diary' | 'progress';
+export type MemoryKey = ModuleKey | 'identity' | 'progressPhotos';
 export type MemoryState = Map<MemoryKey, unknown>;
 
-/** API comune dei cinque model Prisma JSONB già esistenti; nessuna nuova tabella. */
+/** API comune dei modelli Prisma che conservano aggregati in JSONB. */
 export interface PrismaStateDelegate {
   findUnique(args: { where: { id: string } }): Promise<{ data: Prisma.JsonValue } | null>;
   upsert(args: { where: { id: string }; create: { id: string; data: Prisma.InputJsonValue }; update: { data: Prisma.InputJsonValue } }): Promise<unknown>;
