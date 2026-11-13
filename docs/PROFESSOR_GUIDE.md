@@ -42,11 +42,11 @@ Confronto puntuale con il catalogo dei 22 di Refactoring Guru: [DESIGN_PATTERNS]
 | Concetto | Dove leggerlo | Spiegazione da dare |
 |---|---|---|
 | Facade / public module contract | public/index.ts dei cinque moduli | Il chiamante usa operazioni semantiche, senza conoscere la persistenza. |
-| Adapter GoF | [repository-adapters.ts](../apps/api/src/infrastructure/repository-adapters.ts) | MemoryRepository/PostgresRepository traducono get/save nelle operazioni dello storage. |
+| Adapter GoF | [diary-repositories.ts](../apps/api/src/infrastructure/diary-repositories.ts) | I due adapter realizzano il contratto del diario con righe Prisma o con lo stato di test in memoria. |
 | Command GoF | [sync/commands.ts](../apps/web/src/sync/commands.ts) | SyncCommand.execute incapsula richiesta pasto/peso; il motore invoca senza conoscere l'endpoint concreto. |
 | Strategy GoF | [sync/retry.ts](../apps/web/src/sync/retry.ts) | RetryContext delega la decisione a backoff/login/stop; la politica può cambiare senza modificare il motore. |
 | Observer GoF | [sync-engine.ts](../apps/web/src/sync/sync-engine.ts), [observers.ts](../apps/web/src/sync/observers.ts), [App.tsx](../apps/web/src/App.tsx) | Subject e due subscriber reali separano pannello coda e refresh dati, con cleanup account. |
-| Abstract Factory GoF | [storage-factory.ts](../apps/api/src/infrastructure/storage-factory.ts), [persistence.ts](../apps/api/src/infrastructure/persistence.ts) | Due factory costruiscono ciascuna cinque repository e UnitOfWork della stessa famiglia. |
+| Abstract Factory GoF | [storage-factory.ts](../apps/api/src/infrastructure/storage-factory.ts), [persistence.ts](../apps/api/src/infrastructure/persistence.ts) | Due factory costruiscono i repository dei cinque moduli e la Unit of Work della stessa famiglia. |
 | Repository | [shared/contracts.ts](../apps/api/src/shared/contracts.ts), [persistence.ts](../apps/api/src/infrastructure/persistence.ts) | L'application dipende dall'interfaccia; l'adapter Prisma la realizza e i test sostituiscono lo storage. |
 | Dependency inversion e injection | [composition/application.ts](../apps/api/src/composition/application.ts) | La composition root fornisce repository, clock e altri contratti ai servizi; il dominio non crea client Prisma. |
 | Unit of Work | [shared/unit-of-work.ts](../apps/api/src/shared/unit-of-work.ts), infrastruttura persistente | Una richiesta completa è atomica. Nessuna metà della pubblicazione sopravvive a un fallimento. |
@@ -60,7 +60,7 @@ Non chiamare «Singleton», «CQRS», «event sourcing» o «microservizi» ciò
 
 ### Presentare i sei pattern con una sola storia
 1. Partire dalla Facade DiaryService.record: una richiesta esterna nasconde più collaboratori, preservando ownership.
-2. Seguire Repository<T> fino all'Adapter PostgresRepository: traduce get/save in Prisma. Non descrivere più un oggetto anonimo restituito da repository(), che apparteneva alla versione precedente.
+2. Seguire `DiaryRepository` fino a `PostgresDiaryRepository`. La ricerca di un’operazione usa paziente e `operationId`. L’inserimento salva una sola registrazione.
 3. Aprire StorageFactory e Application: la factory astratta sceglie prodotti coerenti memory o PostgreSQL. Non è un semplice new né un Factory Method; cinque prodotti proprietari e UnitOfWork condividono contesto.
 4. Passare al browser: un Queued viene ricostruito in RecordMealCommand o RecordWeightCommand e l'invoker ne chiama execute. I dati si serializzano, i metodi si ricostruiscono; operationId non cambia.
 5. Produrre un errore noto: RetryContext.select trova una RetryStrategy, decide calcola status/nextAttempt/stopBatch. Il test può sostituire il backoff senza modificare comandi, motore o IndexedDB. Questo è il beneficio concreto della nuova Strategy: responsabilità separata e algoritmo verificabile.
@@ -125,7 +125,7 @@ La preferenza parte false e si riferisce al diario intero, incluso lo storico; n
 Il diniego è un errore distinto da una lista vuota: DiaryNotShared non significa «il Patient non ha mangiato». Il browser Nutritionist non mantiene una cache offline dei diari dei pazienti. Password e session ID non si salvano in IndexedDB. [ADR-005/019/022/026/027](DECISION_SUMMARY.md).
 
 ## 7. Persistenza e concorrenza: spiegare il compromesso
-Mostrare lo schema Prisma, i repository e la Unit of Work. Identity conserva una riga per utente in `Account` e collega le sessioni tramite `AccountSession.userId`. Gli aggregati degli altri moduli conservano lo stato in JSON, mentre Progress ha una tabella binaria per le foto. La composizione assegna a ciascun servizio il repository del suo modulo. [Schema Prisma](../apps/api/prisma/schema.prisma)
+Mostrare lo schema Prisma, i repository e la Unit of Work. Le tabelle distinguono account, sessioni, inviti, associazioni, versioni di piano, registrazioni del diario, preferenze, misurazioni e foto. Nei piani, le relazioni collegano versioni, pasti, alternative e alimenti. La composizione assegna a ciascun servizio il repository del suo modulo. [Schema Prisma](../apps/api/prisma/schema.prisma)
 
 La transazione con advisory lock comune serializza pubblicazione, autorizzazione e deduplicazione. È una scelta prudente per il progetto accademico, con throughput limitato e salvataggi ampi. Protegge tutte le operazioni che passano dall'applicazione; non si afferma che una scrittura SQL manuale esterna sia automaticamente valida. In un'evoluzione si potrebbero normalizzare tabelle, aggiungere vincoli specifici e ridurre la granularità dei lock senza cambiare il contratto di dominio.
 

@@ -1,4 +1,8 @@
 # Tracciabilità requisiti, implementazione e verifiche
+## Persistenza relazionale
+
+La migrazione di inviti, associazioni, piani, diario e misurazioni è stata provata su uno schema PostgreSQL isolato. Le letture dell’app prima e dopo la migrazione hanno restituito gli stessi ID, riferimenti storici, contenuti ordinati, preferenze e misurazioni. I retry hanno restituito le registrazioni già presenti. `pnpm check` ha superato 79 test e `pnpm build` è riuscito. Lo smoke Edge ha verificato la demo sul database migrato, compresa la registrazione offline e la sincronizzazione al ritorno online. [ADR-035](adr/ADR-035.md)
+
 ## Profili, account e progressi
 
 | Requisiti | Implementazione | Prove |

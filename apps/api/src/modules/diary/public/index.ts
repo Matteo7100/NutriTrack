@@ -4,14 +4,23 @@
  * operationId rende i retry idempotenti: payload diverso sullo stesso ID è conflitto.
  */
 import { randomUUID } from 'node:crypto';
-import { AppError, Clock, Principal, Repository } from '../../../shared/contracts';
+import { AppError, Clock, Principal } from '../../../shared/contracts';
 import { PatientService } from '../../patient-management/public';
 import { MealPlanningService } from '../../meal-planning/public';
 
 export interface DiaryEntry { id: string; patientId: string; consumptionTime: number; createdAt: number; actualConsumption: string; mealPlanVersionId: string | null; operationId: string }
-export interface DiaryState { entries: DiaryEntry[]; preferences: Record<string, { enabled: boolean; assignmentId: string | null }> }
+export interface DiarySharingPreference { enabled: boolean; assignmentId: string | null }
+export interface DiaryState { entries: DiaryEntry[]; preferences: Record<string, DiarySharingPreference> }
 export const createEmptyDiaryState = (): DiaryState => ({ entries: [], preferences: {} });
 export interface RecordMeal { operationId: string; consumptionTime: string; actualConsumption: string }
+
+export interface DiaryRepository {
+  getPreference(patientId: string): Promise<DiarySharingPreference | null>;
+  savePreference(patientId: string, preference: DiarySharingPreference): Promise<void>;
+  findByOperation(patientId: string, operationId: string): Promise<DiaryEntry | null>;
+  insert(entry: DiaryEntry): Promise<void>;
+  listByPatient(patientId: string, from?: number, to?: number): Promise<DiaryEntry[]>;
+}
 
 // Offset obbligatorio. La verifica del calendario evita Date.parse che normalizza 30 febbraio.
 function instant(input: unknown, now: number): number {
@@ -31,12 +40,12 @@ function instant(input: unknown, now: number): number {
 }
 
 export class DiaryService {
-  constructor(private readonly repo: Repository<DiaryState>, private readonly patients: PatientService,
+  constructor(private readonly repo: DiaryRepository, private readonly patients: PatientService,
     private readonly plans: MealPlanningService, private readonly clock: Clock) {}
 
   async sharing(actor: Principal): Promise<{ enabled: boolean }> {
     this.patientOnly(actor);
-    const preference = (await this.repo.get()).preferences[actor.id];
+    const preference = await this.repo.getPreference(actor.id);
     return { enabled: !!preference?.enabled && preference.assignmentId === await this.patients.assignmentKey(actor.id) && preference.assignmentId !== null };
   }
 
@@ -45,9 +54,7 @@ export class DiaryService {
     if (typeof enabled !== 'boolean') throw new AppError('ValidationError', 400, 'enabled deve essere booleano.');
     const assignmentId = await this.patients.assignmentKey(actor.id);
     if (enabled && !assignmentId) throw new AppError('PatientNotAssigned', 409, 'Associare un Nutritionist prima di condividere.');
-    const state = await this.repo.get();
-    state.preferences[actor.id] = { enabled, assignmentId };
-    await this.repo.save(state);
+    await this.repo.savePreference(actor.id, { enabled, assignmentId });
     return { enabled };
   }
 
@@ -58,28 +65,25 @@ export class DiaryService {
     }
     const consumptionTime = instant(input.consumptionTime, this.clock());
     const actualConsumption = input.actualConsumption.trim();
-    const state = await this.repo.get();
-    const existing = state.entries.find(e => e.patientId === actor.id && e.operationId === input.operationId);
+    const existing = await this.repo.findByOperation(actor.id, input.operationId);
     if (existing) {
       if (existing.consumptionTime !== consumptionTime || existing.actualConsumption !== actualConsumption) throw new AppError('OperationConflict', 409, 'operationId già usato con contenuto diverso.');
-      return structuredClone(existing);
+      return existing;
     }
     const version = await this.plans.getVersionAt(actor.id, consumptionTime);
     const entry: DiaryEntry = { id: randomUUID(), patientId: actor.id, consumptionTime, createdAt: this.clock(), actualConsumption, mealPlanVersionId: version?.id ?? null, operationId: input.operationId };
-    state.entries.push(entry);
-    await this.repo.save(state);
-    return structuredClone(entry);
+    await this.repo.insert(entry);
+    return entry;
   }
 
   async list(actor: Principal, patientId: string, from?: number, to?: number) {
     await this.patients.assertAccess(actor, patientId);
-    const state = await this.repo.get();
     if (actor.role === 'NUTRITIONIST') {
-      const pref = state.preferences[patientId];
+      const pref = await this.repo.getPreference(patientId);
       if (!pref?.enabled || pref.assignmentId === null || pref.assignmentId !== await this.patients.assignmentKey(patientId)) throw new AppError('DiaryNotShared', 403, 'Il Patient non condivide il diario.');
     }
     if ((from !== undefined && !Number.isFinite(from)) || (to !== undefined && !Number.isFinite(to)) || (from !== undefined && to !== undefined && from > to)) throw new AppError('ValidationError', 400, 'Intervallo non valido.');
-    return structuredClone(state.entries.filter(e => e.patientId === patientId && (from === undefined || e.consumptionTime >= from) && (to === undefined || e.consumptionTime < to)).sort((a, b) => b.consumptionTime - a.consumptionTime));
+    return this.repo.listByPatient(patientId, from, to);
   }
 
   private patientOnly(actor: Principal) { if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Operazione riservata al Patient.'); }

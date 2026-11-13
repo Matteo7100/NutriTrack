@@ -42,3 +42,4 @@ Ogni nuova decisione deve riportare contesto, decisione, motivazione, conseguenz
 - [ADR-032 — Abstract Factory per famiglie di storage coerenti](ADR-032.md)
 - [ADR-033 — Account autonomi, recupero via email e archivio fotografico privato](ADR-033.md)
 - [ADR-034 — Una riga PostgreSQL per account](ADR-034.md)
+- [ADR-035 — Tabelle relazionali per inviti, piani, diario e misurazioni](ADR-035.md)

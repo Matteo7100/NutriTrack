@@ -64,17 +64,18 @@ La versione iniziale comprende Patient e Nutritionist, associazione con accettaz
 | [032](adr/ADR-032.md) | Abstract Factory dei cinque repository e UnitOfWork | Comporre prodotti coerenti e tipizzati della famiglia memory/PostgreSQL. |
 | [033](adr/ADR-033.md) | Invio di email di recupero e archivio fotografico di Progress | Delegare la consegna a Resend e separare foto e misurazioni nel database. |
 | [034](adr/ADR-034.md) | Tabella `Account` con una riga per utente e sessioni separate | Rendere i profili leggibili per riga e imporre l’unicità dell’email in PostgreSQL. |
+| [035](adr/ADR-035.md) | Tabelle relazionali per inviti, piani, diario e misurazioni | Consultare e aggiornare singole entità, preservando ID, ordine e riferimenti storici. |
 
 ## Dettagli del refactoring del 4 novembre
 - SyncCommand.execute incapsula l'invio; RecordMealCommand e RecordWeightCommand ricevono ApiClient. restoreCommand ricrea dal DTO ma non è un Factory Method GoF e non aggiunge undo.
 - RetryContext seleziona RetryStrategy: decide restituisce RetryDecision con status, nextAttempt e stopBatch. BackoffRetryStrategy gestisce transitori; WaitForLoginStrategy ferma il batch per login; StopRetryStrategy conserva conflitti/dinieghi. Il vantaggio della sostituzione dell'algoritmo non modifica idempotenza, privacy o immutabilità del piano.
 - SyncEngine è invoker e subject. QueuePanelModel e PatientDataRefresher sono i due observer realmente collegati da App, con filtro account, dispose e unsubscribe; Promise.allSettled isola un fallimento di observer dal comando già confermato. Non è un bus di eventi di dominio.
-- StorageFactory produce cinque repository tipizzati e la UnitOfWork dello stesso contesto. MemoryStorageFactory/PostgresStorageFactory sono famiglie concrete; MemoryRepository/PostgresRepository mantengono il ruolo Adapter. Application usa i prodotti astratti e non sceglie chiavi storage. Gli alias Persistence precedenti sono compatibilità, non fallback.
+- StorageFactory produce i repository tipizzati dei cinque moduli e la Unit of Work dello stesso contesto. Gli adapter concreti Memory e PostgreSQL traducono le operazioni di ciascun repository. Application usa i prodotti astratti.
 - Formato IndexedDB, operationId e payload, struttura dello stato PostgreSQL, locking e business rule rimangono vincolanti. I nuovi test dimostrano i collaboratori senza sostituire le verifiche reali browser/PostgreSQL.
 
 ## Decisioni implementative da spiegare all'esame
 - I public entry point dei moduli espongono servizi e tipi; non espongono Prisma. Il tipo Repository appartiene al contratto tecnico, l'adapter è infrastrutturale.
-- La persistenza utilizza un modello Prisma distinto per modulo, con stato JSON. Non è una singola collection liberamente accessibile a tutti i servizi: ogni repository è assegnato al proprietario nella composition root. Scelta deliberatamente semplice, con costo di caricamento e riscrittura dell'aggregato documentato.
+- La prima versione usava una riga JSON per modulo. Le migrazioni successive hanno introdotto tabelle relazionali per tutte le entità persistenti. Ogni repository accede alle tabelle del proprio modulo. [ADR-034](adr/ADR-034.md), [ADR-035](adr/ADR-035.md)
 - Una Unit of Work apre la transazione e serializza le operazioni con un advisory lock PostgreSQL. La protezione è ampia: limita throughput ma rende consistenti versione corrente, privacy e deduplicazione. Non presentarla come architettura scalabile per milioni di utenti.
 - Il clock è iniettato: i test scelgono l'istante, il server reale usa il proprio orologio. Il client non fornisce l'attivazione del piano.
 - Due pubblicazioni nello stesso millisecondo non producono una data artificiale: se l'attivazione non sarebbe successiva all'inizio corrente si segnala PublicationBusy (409), da ritentare dopo che il clock server è avanzato.

@@ -2,10 +2,12 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
 }
+
 model Account {
   id             String           @id
   email          String           @unique
@@ -31,22 +33,7 @@ model AccountSession {
   @@index([userId])
   @@index([expiresAt])
 }
-model PatientState {
-  id String @id
-  data Json
-}
-model MealPlanningState {
-  id String @id
-  data Json
-}
-model DiaryState {
-  id String @id
-  data Json
-}
-model ProgressState {
-  id String @id
-  data Json
-}
+
 model ProgressPhoto {
   id          String   @id
   patientId   String
@@ -58,4 +45,140 @@ model ProgressPhoto {
 
   @@unique([patientId, operationId])
   @@index([patientId, timestamp])
+}
+
+enum PatientInvitationStatus {
+  PENDING
+  ACCEPTED
+  CLOSED
+}
+
+model PatientInvitation {
+  id             String                  @id
+  patientId      String
+  nutritionistId String
+  createdAt      DateTime
+  status         PatientInvitationStatus
+  sequence       Int                     @unique @default(autoincrement())
+
+  @@index([patientId, status, sequence])
+  @@index([nutritionistId, status, sequence])
+}
+
+model PatientAssignment {
+  id             String    @id
+  patientId      String
+  nutritionistId String
+  createdAt      DateTime
+  endedAt        DateTime?
+  sequence       Int       @unique @default(autoincrement())
+
+  @@index([patientId, endedAt])
+  @@index([nutritionistId, endedAt, sequence])
+}
+
+model MealPlan {
+  id        String            @id
+  patientId String            @unique
+  versions  MealPlanVersion[]
+}
+
+model MealPlanVersion {
+  id              String            @id
+  mealPlanId      String
+  versionNumber   Int
+  parentVersionId String?
+  createdAt       DateTime
+  createdBy       String
+  validFrom       DateTime
+  validUntil      DateTime?
+  plan            MealPlan          @relation(fields: [mealPlanId], references: [id], onDelete: Restrict)
+  parent          MealPlanVersion?  @relation("MealPlanLineage", fields: [parentVersionId], references: [id], onDelete: Restrict)
+  children        MealPlanVersion[] @relation("MealPlanLineage")
+  meals           MealPlanMeal[]
+  changes         MealPlanChange[]
+
+  @@unique([mealPlanId, versionNumber])
+  @@index([mealPlanId, validFrom])
+  @@index([parentVersionId])
+}
+
+model MealPlanMeal {
+  id           String                @id @default(uuid())
+  versionId    String
+  position     Int
+  name         String
+  version      MealPlanVersion       @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  alternatives MealPlanAlternative[]
+
+  @@unique([versionId, position])
+}
+
+model MealPlanAlternative {
+  id       String         @id @default(uuid())
+  mealId   String
+  position Int
+  meal     MealPlanMeal   @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  foods    MealPlanFood[]
+
+  @@unique([mealId, position])
+}
+
+model MealPlanFood {
+  id            String              @id @default(uuid())
+  alternativeId String
+  position      Int
+  food          String
+  quantity      Float
+  unit          String
+  alternative   MealPlanAlternative @relation(fields: [alternativeId], references: [id], onDelete: Cascade)
+
+  @@unique([alternativeId, position])
+}
+
+model MealPlanChange {
+  id        String          @id @default(uuid())
+  versionId String
+  position  Int
+  path      String
+  before    Json
+  after     Json
+  version   MealPlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([versionId, position])
+}
+
+model DiaryEntry {
+  id                String   @id
+  patientId         String
+  operationId       String
+  consumptionTime   DateTime
+  createdAt         DateTime
+  actualConsumption String
+  mealPlanVersionId String?
+  sequence          Int      @unique @default(autoincrement())
+
+  @@unique([patientId, operationId])
+  @@index([patientId, consumptionTime(sort: Desc), sequence])
+}
+
+model DiarySharingPreference {
+  patientId    String  @id
+  enabled      Boolean
+  assignmentId String?
+}
+
+model ProgressMeasurement {
+  id          String   @id
+  patientId   String
+  operationId String
+  timestamp   DateTime
+  createdAt   DateTime
+  type        String
+  unit        String
+  value       Float
+  sequence    Int      @unique @default(autoincrement())
+
+  @@unique([patientId, operationId])
+  @@index([patientId, timestamp(sort: Desc), sequence])
 }
