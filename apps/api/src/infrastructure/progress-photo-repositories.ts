@@ -29,6 +29,9 @@ export class MemoryProgressPhotoRepository implements ProgressPhotoRepository {
     await this.photos.save(remaining);
     return true;
   }
+  async deleteAll(patientId: string) {
+    await this.photos.save((await this.photos.get()).filter(photo => photo.patientId !== patientId));
+  }
 }
 
 const metadataColumns = { id: true, timestamp: true, createdAt: true, mimeType: true } as const;
@@ -62,5 +65,8 @@ export class PostgresProgressPhotoRepository implements ProgressPhotoRepository 
   async delete(patientId: string, id: string) {
     const { count } = await this.currentDelegate().deleteMany({ where: { patientId, id } });
     return count > 0;
+  }
+  async deleteAll(patientId: string) {
+    await this.currentDelegate().deleteMany({ where: { patientId } });
   }
 }

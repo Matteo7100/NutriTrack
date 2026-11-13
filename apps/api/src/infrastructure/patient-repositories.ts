@@ -4,6 +4,14 @@ import type {
 } from '../modules/patient-management/public';
 import { AppError, type Principal, type Repository } from '../shared/contracts';
 
+function ownerFilter(actor: Principal) {
+  return actor.role === 'PATIENT' ? { patientId: actor.id } : { nutritionistId: actor.id };
+}
+
+function ownedBy(record: { patientId: string; nutritionistId: string }, actor: Principal): boolean {
+  return (actor.role === 'PATIENT' ? record.patientId : record.nutritionistId) === actor.id;
+}
+
 export class MemoryPatientRepository implements PatientRepository {
   constructor(private readonly repository: Repository<PatientState>) {}
 
@@ -19,8 +27,7 @@ export class MemoryPatientRepository implements PatientRepository {
 
   async pendingInvitations(actor: Principal) {
     const state = await this.repository.get();
-    return state.invitations.filter(invitation => invitation.status === 'PENDING' &&
-      (actor.role === 'PATIENT' ? invitation.patientId === actor.id : invitation.nutritionistId === actor.id));
+    return state.invitations.filter(invitation => invitation.status === 'PENDING' && ownedBy(invitation, actor));
   }
 
   async pendingInvitation(lookup: PendingInvitationLookup) {
@@ -33,6 +40,15 @@ export class MemoryPatientRepository implements PatientRepository {
     const state = await this.repository.get();
     state.invitations.push(invitation);
     await this.repository.save(state);
+  }
+
+  async closeInvitation(actor: Principal, invitationId: string) {
+    const state = await this.repository.get();
+    const invitation = state.invitations.find(item => item.id === invitationId && item.status === 'PENDING' && ownedBy(item, actor));
+    if (!invitation) return false;
+    invitation.status = 'CLOSED';
+    await this.repository.save(state);
+    return true;
   }
 
   async acceptInvitation(invitationId: string, assignment: Assignment) {
@@ -52,6 +68,30 @@ export class MemoryPatientRepository implements PatientRepository {
     if (!assignment) throw new Error('Associazione mancante durante la chiusura.');
     assignment.endedAt = endedAt;
     await this.repository.save(state);
+  }
+
+  async relations(actor: Principal) {
+    const { assignments, invitations } = await this.repository.get();
+    return {
+      assignments: assignments.filter(assignment => ownedBy(assignment, actor)),
+      invitations: invitations.filter(invitation => ownedBy(invitation, actor)),
+    };
+  }
+
+  async erasePatientRelations(patientId: string) {
+    const state = await this.repository.get();
+    state.assignments = state.assignments.filter(assignment => assignment.patientId !== patientId);
+    state.invitations = state.invitations.filter(invitation => invitation.patientId !== patientId);
+    await this.repository.save(state);
+  }
+
+  async closeNutritionistRelations(nutritionistId: string, endedAt: number) {
+    const state = await this.repository.get();
+    const active = state.assignments.filter(assignment => assignment.nutritionistId === nutritionistId && assignment.endedAt === null);
+    for (const assignment of active) assignment.endedAt = endedAt;
+    state.invitations = state.invitations.filter(invitation => invitation.nutritionistId !== nutritionistId || invitation.status !== 'PENDING');
+    await this.repository.save(state);
+    return active.map(assignment => assignment.patientId);
   }
 }
 
@@ -80,9 +120,8 @@ export class PostgresPatientRepository implements PatientRepository {
   }
 
   async pendingInvitations(actor: Principal) {
-    const owner = actor.role === 'PATIENT' ? { patientId: actor.id } : { nutritionistId: actor.id };
     const rows = await this.transaction().patientInvitation.findMany({
-      where: { ...owner, status: 'PENDING' },
+      where: { ...ownerFilter(actor), status: 'PENDING' },
       orderBy: { sequence: 'asc' },
     });
     return rows.map(readInvitation);
@@ -97,6 +136,14 @@ export class PostgresPatientRepository implements PatientRepository {
     await this.transaction().patientInvitation.create({
       data: { ...invitation, createdAt: new Date(invitation.createdAt) },
     });
+  }
+
+  async closeInvitation(actor: Principal, invitationId: string) {
+    const { count } = await this.transaction().patientInvitation.updateMany({
+      where: { ...ownerFilter(actor), id: invitationId, status: 'PENDING' },
+      data: { status: 'CLOSED' },
+    });
+    return count > 0;
   }
 
   async acceptInvitation(invitationId: string, assignment: Assignment) {
@@ -122,5 +169,32 @@ export class PostgresPatientRepository implements PatientRepository {
       data: { endedAt: new Date(endedAt) },
     });
     if (!ended.count) throw new AppError('AssociationConflict', 409, 'Nessuna associazione attiva.');
+  }
+
+  async relations(actor: Principal) {
+    const { patientAssignment, patientInvitation } = this.transaction();
+    const where = ownerFilter(actor);
+    const [assignments, invitations] = await Promise.all([
+      patientAssignment.findMany({ where, orderBy: { sequence: 'asc' } }),
+      patientInvitation.findMany({ where, orderBy: { sequence: 'asc' } }),
+    ]);
+    return { assignments: assignments.map(readAssignment), invitations: invitations.map(readInvitation) };
+  }
+
+  async erasePatientRelations(patientId: string) {
+    const { patientAssignment, patientInvitation } = this.transaction();
+    await patientAssignment.deleteMany({ where: { patientId } });
+    await patientInvitation.deleteMany({ where: { patientId } });
+  }
+
+  async closeNutritionistRelations(nutritionistId: string, endedAt: number) {
+    const { patientAssignment, patientInvitation } = this.transaction();
+    const ended = await patientAssignment.updateManyAndReturn({
+      where: { nutritionistId, endedAt: null },
+      data: { endedAt: new Date(endedAt) },
+      select: { patientId: true },
+    });
+    await patientInvitation.deleteMany({ where: { nutritionistId, status: 'PENDING' } });
+    return ended.map(assignment => assignment.patientId);
   }
 }

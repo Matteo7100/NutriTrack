@@ -61,6 +61,9 @@ Raffinamenti correnti: entry senza piano (ADR-004); privacy globale, non per ent
 | NFR-05 | Operazioni critiche testabili indipendentemente dalla UI. |
 | NFR-06 | Consistenza tra diario storico e versione valida al consumo. |
 | NFR-07 | Operazioni Patient supportate tollerano offline e sincronizzano al ritorno della rete. |
+| NFR-08 | Log strutturati: una riga JSON per evento con `requestId` restituito al client; nessuna password, token, email o contenuto sanitario nei log (ADR-037). |
+| NFR-09 | Health check: `/api/health/live` senza database; `/api/health/ready` risponde entro 1 s, 503 se il database non risponde, `degraded` (200) se è giù solo un componente secondario (ADR-037). |
+| NFR-10 | Il fallimento del servizio di notifiche non fa fallire nessuna operazione principale; la notifica viene ritentata (outbox, backoff, circuit breaker). Database irraggiungibile → 503 con `Retry-After` entro 5 s di attesa del lock, mai un 500 generico; le registrazioni offline restano in coda (ADR-037). |
 Derivano dal requisito del professore di superare una CRUD tramite modularità, ownership, versioning e sync.
 Verifiche previste: controllo dipendenze/import e query; test di regole con fake repository; scenari temporalità, autorizzazione, offline e conflitto. Target numerici performance/disponibilità non definiti.
 

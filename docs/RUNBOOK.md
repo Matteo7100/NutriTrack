@@ -34,6 +34,8 @@ Le credenziali sono esclusivamente dimostrative e corrispondono a compose.yaml. 
 
 In `apps/api/.env` impostare `PUBLIC_APP_URL` all’indirizzo dell’app raggiungibile dal destinatario. Per una prova sullo stesso PC usare `http://127.0.0.1:3000/`. In produzione è richiesto HTTPS. Impostare `RESEND_API_KEY` con la chiave server di Resend e `PASSWORD_RESET_FROM` con un indirizzo mittente del dominio verificato su Resend. Riavviare il backend dopo la modifica. Senza questi valori il sito segnala che il recupero via email è temporaneamente indisponibile.
 
+Solo per le prove in locale: con `MAIL_CONSOLE=true` (già presente in `.env.example`) e senza Resend, il link di recupero e gli avvisi di invito vengono stampati nel terminale del backend. La modalità è ignorata con `NODE_ENV=production`.
+
 Per la prova, registrare un account con una casella che si può consultare. Dal login aprire **Password dimenticata?**, inserire l’indirizzo e seguire il link ricevuto. Il link scade dopo 30 minuti e può essere usato una sola volta. Dopo il salvataggio accedere con la nuova password.
 
 ## 3. Database
@@ -147,6 +149,18 @@ Questo è provisioning della demo, non un'interfaccia di amministrazione aggiunt
 | pnpm --dir apps/web test | Funzioni e stati di riconciliazione del frontend |
 
 Il fake in memoria verifica regole senza rete; non dimostra il comportamento di PostgreSQL. La suite infrastrutturale che usa il database richiede il database effettivamente disponibile. L'esito finale e gli eventuali limiti sono nel riepilogo verifiche e in [TRACEABILITY.md](TRACEABILITY.md).
+
+## 9-bis. Resilienza: log, health check e prove di guasto
+Il backend scrive una riga JSON per evento (stdout, errori su stderr) con `ts`, `level`, `event`, `requestId`. `LOG_LEVEL=debug` mostra anche le richieste di health check. Il `requestId` di una risposta (header `X-Request-Id`) permette di trovare tutte le righe di quella richiesta.
+
+```powershell
+curl.exe -s http://127.0.0.1:3000/api/health/live
+curl.exe -s -i http://127.0.0.1:3000/api/health/ready
+```
+
+Prove di guasto ripetibili (ADR-037):
+1. **Database giù.** Con l’app avviata e un paziente collegato, `docker compose stop db`. Atteso: `ready` → 503 `down`; nel browser il banner «Il servizio è temporaneamente non disponibile», nessun form di login; un pasto registrato resta in Sincronizzazione; nel log `storage.unavailable`. Poi `docker compose start db`: entro circa un minuto (subito, ricaricando la pagina) il banner sparisce e la coda viene confermata.
+2. **Provider email giù.** Con Resend configurato, impostare una `RESEND_API_KEY` errata e riavviare. Un invito risponde comunque 202 e il paziente lo vede nell’app; `ready` → 200 `degraded`; nel log `notification.retry_scheduled` e, dopo 3 errori, `notification.circuit_open`. Ripristinata la chiave, la notifica parte al ciclo successivo (`notification.sent`).
 
 ## 10. Problemi comuni
 | Sintomo | Controllo |

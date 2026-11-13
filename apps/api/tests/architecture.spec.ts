@@ -9,7 +9,7 @@ import { join, relative, resolve, sep } from 'node:path';
 const base = resolve(__dirname, '../src/modules');
 const allowed: Record<string, string[]> = {
   identity: [], 'patient-management': ['identity'], 'meal-planning': ['patient-management'],
-  diary: ['patient-management', 'meal-planning'], progress: ['patient-management'],
+  diary: ['patient-management', 'meal-planning'], progress: ['patient-management'], notifications: [],
 };
 function files(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith('.ts') ? [join(dir, e.name)] : []);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ApiError, api } from './api';
-import { localNow, localToIso } from './offline';
+import { localToIso } from './offline';
+import { useNowField } from './hooks';
 
 interface ProgressPhoto {
   id: string;
@@ -68,7 +69,7 @@ export function ProgressPhotos({ patientId }: { patientId: string }) {
   const [loadError, setLoadError] = useState('');
   const [reload, setReload] = useState(0);
   const [preview, setPreview] = useState('');
-  const [time, setTime] = useState(localNow);
+  const time = useNowField();
   const [preparing, setPreparing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -127,10 +128,12 @@ export function ProgressPhotos({ patientId }: { patientId: string }) {
     setNotice('');
     setUploading(true);
     try {
-      const timestamp = localToIso(time);
+      const timestamp = localToIso(time.resolve());
       if (Date.parse(timestamp) > Date.now()) throw new Error('Non puoi registrare un momento futuro.');
       // In caso di errore di rete, lo stesso file e la stessa data riusano l'operazione.
-      const payload = prepared.current?.timestamp === timestamp ? prepared.current : {
+      // Con l'ora automatica il nuovo tentativo riusa anche l'istante del primo invio.
+      const reusable = prepared.current?.dataUrl === preview && (!time.edited || prepared.current.timestamp === timestamp);
+      const payload = reusable && prepared.current ? prepared.current : {
         operationId: crypto.randomUUID(), timestamp, dataUrl: preview,
       };
       prepared.current = payload;
@@ -139,6 +142,7 @@ export function ProgressPhotos({ patientId }: { patientId: string }) {
       setPreview('');
       if (input.current) input.current.value = '';
       prepared.current = null;
+      time.reset();
       setNotice('Foto salvata.');
     } catch (reason) {
       setError(failure(reason, 'Impossibile caricare la foto.'));
@@ -176,7 +180,7 @@ export function ProgressPhotos({ patientId }: { patientId: string }) {
             <input ref={input} type="file" accept={photoTypes.join(',')} required disabled={busy || full} onChange={choosePhoto} aria-describedby="progress-photo-format" />
           </label>
           <label>Data e ora della foto
-            <input type="datetime-local" step="1" required disabled={busy || full} value={time} onChange={event => setTime(event.target.value)} />
+            <input type="datetime-local" step="1" min="2000-01-01T00:00:00" required disabled={busy || full} value={time.value} onChange={event => time.set(event.target.value)} />
           </label>
         </div>
         <p className="meta" id="progress-photo-format">JPEG, PNG o WebP. La foto viene ridimensionata prima del caricamento.</p>

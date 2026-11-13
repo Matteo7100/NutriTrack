@@ -10,14 +10,17 @@ export interface Version {
 }
 export interface Entry {
   id: string; patientId: string; operationId: string; consumptionTime: number;
-  createdAt: number; actualConsumption: string; mealPlanVersionId: string | null;
+  createdAt: number; actualConsumption: string; mealPlanVersionId: string | null; updatedAt?: number;
 }
 export type MeasurementType = 'WEIGHT' | 'ARM_CIRCUMFERENCE' | 'TORSO_CIRCUMFERENCE';
 export type Measurement = {
   id: string; patientId: string; operationId: string; timestamp: number;
-  value: number;
+  value: number; updatedAt?: number;
 } & ({ type: 'WEIGHT'; unit: 'KG' } | { type: Exclude<MeasurementType, 'WEIGHT'>; unit: 'CM' });
-export interface Invitation { id: string; nutritionistName?: string; nutritionistId?: string; status?: string }
+export interface Invitation {
+  id: string; status?: string; nutritionistId?: string; nutritionistName?: string; nutritionistEmail?: string;
+  patientId?: string; patientName?: string; patientEmail?: string;
+}
 export interface Snapshot {
   user: User; active: Version | null; history: Version[]; diary: Entry[];
   measurements: Measurement[]; sharing: boolean; cachedAt: number;

@@ -1,13 +1,16 @@
-import { useState, type FormEvent } from 'react';
-import { enqueue, flushQueue, localNow, localToIso } from './offline';
+import { useRef, useState, type FormEvent } from 'react';
+import { enqueueFor, flushQueue, localToIso } from './offline';
+import { useNowField, useOperationNotice } from './hooks';
 import { ProgressPhotos } from './ProgressPhotos';
+import { MeasurementActions } from './RecordEditors';
 import type { Measurement, MeasurementType, User } from './types';
 import './progress.css';
 
+// min/max coincidono con gli intervalli di plausibilità applicati dal server.
 const metrics = {
-  WEIGHT: { label: 'Peso', unit: 'kg', apiUnit: 'KG', action: 'Registra peso' },
-  ARM_CIRCUMFERENCE: { label: 'Circonferenza braccio', unit: 'cm', apiUnit: 'CM', action: 'Registra circonferenza braccio' },
-  TORSO_CIRCUMFERENCE: { label: 'Circonferenza busto', unit: 'cm', apiUnit: 'CM', action: 'Registra circonferenza busto' },
+  WEIGHT: { label: 'Peso', unit: 'kg', apiUnit: 'KG', action: 'Registra peso', min: 1, max: 500 },
+  ARM_CIRCUMFERENCE: { label: 'Circonferenza braccio', unit: 'cm', apiUnit: 'CM', action: 'Registra circonferenza braccio', min: 5, max: 100 },
+  TORSO_CIRCUMFERENCE: { label: 'Circonferenza busto', unit: 'cm', apiUnit: 'CM', action: 'Registra circonferenza busto', min: 20, max: 300 },
 } as const;
 const measurementTypes = Object.keys(metrics) as MeasurementType[];
 const measurementType = (value: unknown): MeasurementType | undefined => (
@@ -26,34 +29,45 @@ interface ProgressProps {
   measurements: Measurement[];
   online: boolean;
   authenticated: boolean;
+  /** Rilettura dopo una correzione o un'eliminazione. */
+  onChanged?: () => Promise<void>;
 }
 
-function MeasurementForm({ user, online, authenticated }: Omit<ProgressProps, 'measurements'>) {
+function MeasurementForm({ user, online, authenticated }: Omit<ProgressProps, 'measurements' | 'onChanged'>) {
   const [type, setType] = useState<MeasurementType>('WEIGHT');
-  const [time, setTime] = useState(localNow);
+  const time = useNowField();
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState('');
+  const busy = useRef(false);
   const [error, setError] = useState('');
+  const { notice, track, clear } = useOperationNotice(user.id, {
+    saved: 'Misurazione salvata sul dispositivo: in attesa di conferma dal server.',
+    confirmed: 'Misurazione confermata dal server.',
+  });
   const metric = metrics[type];
 
   async function record(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Il ref blocca un secondo invio prima ancora che il pulsante risulti disabilitato.
+    if (busy.current) return;
+    busy.current = true;
     setError('');
-    setNotice('');
+    clear();
     setSaving(true);
     try {
-      const timestamp = localToIso(time);
+      const timestamp = localToIso(time.resolve());
       const numericValue = Number(value);
       if (Date.parse(timestamp) > Date.now()) throw new Error('Non puoi registrare un momento futuro.');
-      if (!Number.isFinite(numericValue) || numericValue <= 0) throw new Error('Inserisci un valore maggiore di zero.');
-      await enqueue(user.id, 'progress', { timestamp, value: numericValue, type, unit: metric.apiUnit });
+      if (!Number.isFinite(numericValue) || numericValue < metric.min || numericValue > metric.max) throw new Error(`Inserisci un valore tra ${metric.min} e ${metric.max} ${metric.unit}.`);
+      const operationId = await enqueueFor(user, 'progress', { timestamp, value: numericValue, type, unit: metric.apiUnit });
       setValue('');
-      setNotice('Misurazione salvata sul dispositivo. Lo storico si aggiorna alla conferma del server.');
+      time.reset();
+      track(operationId);
       if (online && authenticated) await flushQueue(user.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Impossibile salvare la misurazione.');
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   }
@@ -67,19 +81,19 @@ function MeasurementForm({ user, online, authenticated }: Omit<ProgressProps, 'm
         </select>
       </label>
       <label>{metric.label} ({metric.unit})
-        <input required disabled={saving} type="number" inputMode="decimal" min="0" step="any" value={value} onChange={event => setValue(event.target.value)} />
+        <input required disabled={saving} type="number" inputMode="decimal" min={metric.min} max={metric.max} step="any" value={value} onChange={event => setValue(event.target.value)} />
       </label>
       <label>Data e ora
-        <input required disabled={saving} type="datetime-local" step="1" value={time} onChange={event => setTime(event.target.value)} />
+        <input required disabled={saving} type="datetime-local" step="1" min="2000-01-01T00:00:00" value={time.value} onChange={event => time.set(event.target.value)} />
       </label>
     </div>
     <button disabled={saving}>{saving ? 'Registrazione…' : metric.action}</button>
-    {notice && <p className="success" role="status">{notice}</p>}
+    {notice && <p className={notice.tone} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</p>}
     {error && <p className="error" role="alert">{error}</p>}
   </form>;
 }
 
-export function ProgressPanel({ user, measurements, online, authenticated }: ProgressProps) {
+export function ProgressPanel({ user, measurements, online, authenticated, onChanged = async () => undefined }: ProgressProps) {
   const isPatient = user.role === 'PATIENT';
 
   return <>
@@ -103,11 +117,13 @@ export function ProgressPanel({ user, measurements, online, authenticated }: Pro
       <div className="progress-history">
         <h3 id="measurements-history-heading">Storico delle misurazioni</h3>
         {measurements.length ? <table aria-labelledby="measurements-history-heading">
-          <thead><tr><th scope="col">Misurazione</th><th scope="col">Data e ora</th><th scope="col">Valore</th></tr></thead>
+          <thead><tr><th scope="col">Misurazione</th><th scope="col">Data e ora</th><th scope="col">Valore</th>{isPatient && <th scope="col">Azioni</th>}</tr></thead>
           <tbody>{measurements.map(measurement => <tr key={measurement.id}>
             <th scope="row">{measurementLabel(measurement.type)}</th>
             <td><time dateTime={new Date(measurement.timestamp).toISOString()}>{dateAndTime.format(measurement.timestamp)}</time></td>
-            <td>{amount.format(measurement.value)} {measurementUnit(measurement.type)}</td>
+            <td>{amount.format(measurement.value)} {measurementUnit(measurement.type)}{measurement.updatedAt && <span className="meta"> · corretta il {dateAndTime.format(measurement.updatedAt)}</span>}</td>
+            {isPatient && <td><MeasurementActions record={measurement} available={online && authenticated} onChanged={onChanged}
+              unit={metrics[measurement.type].unit} min={metrics[measurement.type].min} max={metrics[measurement.type].max} /></td>}
           </tr>)}</tbody>
         </table> : <p className="progress-empty">Nessuna misurazione confermata.</p>}
       </div>

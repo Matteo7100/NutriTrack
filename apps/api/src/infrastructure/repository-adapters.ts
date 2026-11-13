@@ -1,7 +1,7 @@
 /** Archivio di supporto per i repository in memoria della stessa Unit of Work. */
 import { Repository } from '../shared/contracts';
 
-export type MemoryKey = 'identity' | 'patients' | 'plans' | 'diary' | 'progress' | 'progressPhotos';
+export type MemoryKey = 'identity' | 'patients' | 'plans' | 'diary' | 'progress' | 'progressPhotos' | 'notifications';
 export type MemoryState = Map<MemoryKey, unknown>;
 
 export class MemoryRepository<T> implements Repository<T> {
