@@ -73,9 +73,9 @@ const mealText = 'Pasto offline smoke ' + Date.now();
     if (!patients.some(user => user.id === patientId)) {
       const pending = await request(p, '/patients/invitations');
       if (!pending.length) {
-        await n.getByLabel('Email Patient').fill('patient@example.test');
-        await n.getByRole('button', { name: 'Invita Patient', exact: true }).click();
-        await n.getByText('Invito inviato. Il Patient deve accettarlo.', { exact: true }).waitFor();
+        await n.getByLabel('Email del paziente').fill('patient@example.test');
+        await n.getByRole('button', { name: 'Invita paziente', exact: true }).click();
+        await n.getByText('Se l’indirizzo appartiene a un paziente disponibile, riceverà l’invito nell’app.', { exact: true }).waitFor();
       }
       await openSection(p, 'Condivisione e inviti');
       await p.reload(); await p.getByRole('button', { name: 'Accetta associazione' }).first().click();
@@ -139,7 +139,7 @@ const mealText = 'Pasto offline smoke ' + Date.now();
     // datetime-local usa il fuso del browser: il contesto predefinito è UTC su questo test.
     await p.getByLabel('Cosa hai mangiato?').fill(mealText);
     await p.getByRole('button', { name: 'Registra pasto', exact: true }).click();
-    await p.getByText('Registrazione salvata sul dispositivo.', { exact: false }).waitFor();
+    await p.getByText('Pasto salvato sul dispositivo', { exact: false }).waitFor();
     await openSection(p, 'Misurazioni e progressi');
     await p.getByLabel('Data e ora', { exact: true }).fill(consumption);
     await p.getByLabel('Peso (kg)').fill('74.2');

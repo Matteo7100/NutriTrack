@@ -22,11 +22,21 @@ export interface MealPlanVersion {
 export interface MealPlanningState { versions: MealPlanVersion[] }
 export const createEmptyMealPlanningState = (): MealPlanningState => ({ versions: [] });
 
+export interface StoredPlanPeriod extends MealPlanVersionPeriod {
+  readonly mealPlanId: string;
+  readonly versionNumber: number;
+  readonly createdAt: number;
+  readonly createdBy: string;
+}
+
 export interface MealPlanRepository {
-  listPeriods(patientId: string): Promise<MealPlanVersionPeriod[]>;
+  listPeriods(patientId: string): Promise<StoredPlanPeriod[]>;
   findVersion(id: string): Promise<MealPlanVersion | null>;
-  listVersions(patientId: string): Promise<MealPlanVersion[]>;
+  listVersions(patientId: string, visible?: { from: number; author: string }): Promise<MealPlanVersion[]>;
+  listAuthoredVersions(nutritionistId: string): Promise<MealPlanVersion[]>;
   savePublication(closedVersion: MealPlanVersionPeriod | null, version: MealPlanVersion): Promise<void>;
+  closeVersion(versionId: string, validUntil: number): Promise<void>;
+  erasePatient(patientId: string): Promise<void>;
 }
 
 function invalid(): never { throw new AppError('InvalidMealPlan', 400, 'Inserire almeno un pasto, un’opzione e un alimento con quantità positiva e unità.'); }
@@ -61,25 +71,26 @@ export class MealPlanningService {
   constructor(private readonly repo: MealPlanRepository, private readonly patients: PatientService, private readonly clock: Clock) {}
 
   async publish(actor: Principal, patientId: string, baseVersionId: string | null, input: unknown): Promise<MealPlanVersion> {
-    if (actor.role !== 'NUTRITIONIST') throw new AppError('AuthorizationError', 403, 'Solo il Nutritionist può pubblicare piani.');
-    await this.patients.assertAccess(actor, patientId);
+    if (actor.role !== 'NUTRITIONIST') throw new AppError('AuthorizationError', 403, 'Solo il nutrizionista può pubblicare piani.');
+    const windowStart = await this.patients.visibleFrom(actor, patientId);
     const content = validatePlanContent(input);
     if (baseVersionId !== null && typeof baseVersionId !== 'string') throw new AppError('InvalidMealPlan', 400, 'Base della versione non valida.');
     const periods = await this.repo.listPeriods(patientId);
-    const current = periods.find(v => v.validUntil === null);
+    const open = periods.find(version => version.validUntil === null);
+    const current = open && this.visible(open, actor, windowStart) ? open : null;
     if ((current?.id ?? null) !== baseVersionId) throw new AppError('MealPlanVersionConflict', 409, 'La versione di partenza è superata: ricaricare il piano.');
     const activation = this.clock();
-    // Non inventiamo un istante futuro per distinguere due pubblicazioni nello stesso ms.
-    // Il retry successivo potrà pubblicare un intervallo di durata strettamente positiva.
-    if (current && activation <= current.validFrom) throw new AppError('PublicationBusy', 409, 'Attendere un istante e riprovare: attivazione troppo ravvicinata.');
-    // Riusa la regola pura studiata nella fase 2, ora dentro la transazione reale.
+    if (periods.some(version => activation <= version.validFrom || (version.validUntil !== null && activation < version.validUntil))) {
+      throw new AppError('PublicationBusy', 409, 'Attendere un istante e riprovare: attivazione troppo ravvicinata.');
+    }
     const transition = publishNewVersion(periods, {
-      patientId, baseVersionId, newVersionId: randomUUID(), activationTime: activation,
+      patientId, baseVersionId: open?.id ?? null, newVersionId: randomUUID(), activationTime: activation,
     });
     const previous = current ? await this.repo.findVersion(current.id) : null;
+    const lastNumber = periods.reduce((latest, version) => Math.max(latest, version.versionNumber), 0);
     const version: MealPlanVersion = {
-      ...transition.newVersion, mealPlanId: previous?.mealPlanId ?? randomUUID(),
-      versionNumber: (previous?.versionNumber ?? 0) + 1, parentVersionId: previous?.id ?? null,
+      ...transition.newVersion, mealPlanId: periods[0]?.mealPlanId ?? randomUUID(),
+      versionNumber: lastNumber + 1, parentVersionId: previous?.id ?? null,
       createdAt: activation, createdBy: actor.id, validFrom: activation, validUntil: null,
       content, changeSet: changes(previous?.content ?? null, content),
     };
@@ -93,12 +104,34 @@ export class MealPlanningService {
   }
 
   async active(actor: Principal, patientId: string): Promise<MealPlanVersion | null> {
-    await this.patients.assertAccess(actor, patientId);
-    return this.getVersionAt(patientId, this.clock());
+    const windowStart = await this.patients.visibleFrom(actor, patientId);
+    const version = await this.getVersionAt(patientId, this.clock());
+    return version && version.validUntil === null && this.visible(version, actor, windowStart) ? version : null;
   }
 
   async history(actor: Principal, patientId: string): Promise<MealPlanVersion[]> {
-    await this.patients.assertAccess(actor, patientId);
+    const windowStart = await this.patients.visibleFrom(actor, patientId);
+    return this.repo.listVersions(patientId, windowStart === null ? undefined : { from: windowStart, author: actor.id });
+  }
+
+  async closeOpenPlan(patientId: string): Promise<void> {
+    const open = (await this.repo.listPeriods(patientId)).find(version => version.validUntil === null);
+    if (open) await this.repo.closeVersion(open.id, Math.max(this.clock(), open.validFrom + 1));
+  }
+
+  async exportPatient(patientId: string): Promise<MealPlanVersion[]> {
     return this.repo.listVersions(patientId);
+  }
+
+  async exportAuthored(nutritionistId: string): Promise<MealPlanVersion[]> {
+    return this.repo.listAuthoredVersions(nutritionistId);
+  }
+
+  async erasePatient(patientId: string): Promise<void> {
+    await this.repo.erasePatient(patientId);
+  }
+
+  private visible(version: Pick<StoredPlanPeriod, 'createdAt' | 'createdBy'>, actor: Principal, windowStart: number | null): boolean {
+    return windowStart === null || (version.createdAt >= windowStart && version.createdBy === actor.id);
   }
 }

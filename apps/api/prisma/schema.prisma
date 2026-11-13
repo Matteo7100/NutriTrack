@@ -149,17 +149,29 @@ model MealPlanChange {
 }
 
 model DiaryEntry {
-  id                String   @id
+  id                String    @id
   patientId         String
   operationId       String
   consumptionTime   DateTime
   createdAt         DateTime
   actualConsumption String
   mealPlanVersionId String?
-  sequence          Int      @unique @default(autoincrement())
+  updatedAt         DateTime?
+  originalDigest    String?
+  sequence          Int       @unique @default(autoincrement())
 
   @@unique([patientId, operationId])
   @@index([patientId, consumptionTime(sort: Desc), sequence])
+}
+
+model DeletedDiaryEntry {
+  patientId   String
+  operationId String
+  recordId    String
+  digest      String
+  deletedAt   DateTime
+
+  @@id([patientId, operationId])
 }
 
 model DiarySharingPreference {
@@ -169,16 +181,55 @@ model DiarySharingPreference {
 }
 
 model ProgressMeasurement {
-  id          String   @id
-  patientId   String
-  operationId String
-  timestamp   DateTime
-  createdAt   DateTime
-  type        String
-  unit        String
-  value       Float
-  sequence    Int      @unique @default(autoincrement())
+  id             String    @id
+  patientId      String
+  operationId    String
+  timestamp      DateTime
+  createdAt      DateTime
+  type           String
+  unit           String
+  value          Float
+  updatedAt      DateTime?
+  originalDigest String?
+  sequence       Int       @unique @default(autoincrement())
 
   @@unique([patientId, operationId])
   @@index([patientId, timestamp(sort: Desc), sequence])
+}
+
+model DeletedProgressMeasurement {
+  patientId   String
+  operationId String
+  recordId    String
+  digest      String
+  deletedAt   DateTime
+
+  @@id([patientId, operationId])
+}
+
+enum NotificationKind {
+  PASSWORD_RESET
+  INVITATION
+}
+
+model NotificationOutboxEntry {
+  id                String           @id
+  kind              NotificationKind
+  recipientId       String
+  senderId          String?
+  invitationId      String?
+  email             String
+  token             String?
+  nutritionistName  String?
+  nutritionistEmail String?
+  expiresAt         DateTime
+  attempts          Int
+  nextAttemptAt     DateTime
+  leaseId           String?
+  leaseUntil        DateTime?
+
+  @@index([nextAttemptAt, id])
+  @@index([expiresAt])
+  @@index([recipientId])
+  @@index([senderId])
 }

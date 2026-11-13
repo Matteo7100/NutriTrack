@@ -23,7 +23,7 @@ Provenienza di PostgreSQL, licenze e assenza di servizi a pagamento: [infrastrut
 Documento centrale da aggiornare insieme al codice. Stato aggiornato al 30 ottobre 2026. Le ADR conservano contesto, motivazioni e conseguenze; questo file permette di ritrovare ogni scelta senza rileggere tutta la conversazione.
 
 ## Perimetro vincolante
-I requisiti correnti sono FR-01..21, BR-01..11 e NFR-01..07. Gli obiettivi degli attori della prima versione sono nei casi d’uso. [Requisiti](requirements.md), [casi d’uso](use-cases.md)
+I requisiti correnti sono FR-01..21, BR-01..11 e NFR-01..10. Gli obiettivi degli attori della prima versione sono nei casi d’uso. [Requisiti](requirements.md), [casi d’uso](use-cases.md)
 
 La versione iniziale comprende Patient e Nutritionist, associazione con accettazione del Patient, piani versionati, diario con privacy opzionale, peso storico, consultazione e inserimenti offline supportati con sincronizzazione. Sono esclusi Admin, pagamenti, videochiamate, AI, riconoscimento immagini, social, chat, wearable, spesa automatica e inventario. Modifica/cancellazione di pasti e misurazioni e programmazione/retrodatazione dei piani restano rinviate come già concordato. Il cambio di professionista richiede un nuovo consenso alla condivisione; non significa introdurre un nuovo sistema universale di permessi.
 
@@ -65,6 +65,9 @@ La versione iniziale comprende Patient e Nutritionist, associazione con accettaz
 | [033](adr/ADR-033.md) | Invio di email di recupero e archivio fotografico di Progress | Delegare la consegna a Resend e separare foto e misurazioni nel database. |
 | [034](adr/ADR-034.md) | Tabella `Account` con una riga per utente e sessioni separate | Rendere i profili leggibili per riga e imporre l’unicità dell’email in PostgreSQL. |
 | [035](adr/ADR-035.md) | Tabelle relazionali per inviti, piani, diario e misurazioni | Consultare e aggiornare singole entità, preservando ID, ordine e riferimenti storici. |
+| [036](adr/ADR-036.md) | Correzione delle registrazioni, password e gestione dei dati dell’account | Consentire correzioni ed eliminazioni senza ripristinare una registrazione tramite retry. |
+| [037](adr/ADR-037.md) | Health check, log e outbox delle notifiche | Gestire i guasti temporanei del database e del servizio email. |
+| [038](adr/ADR-038.md) | Correzioni dal collaudo dell’11 novembre | Rivalidare i dati visibili, preservare bozze e coda e gestire il cambio di nutrizionista. |
 
 ## Dettagli del refactoring del 4 novembre
 - SyncCommand.execute incapsula l'invio; RecordMealCommand e RecordWeightCommand ricevono ApiClient. restoreCommand ricrea dal DTO ma non è un Factory Method GoF e non aggiunge undo.

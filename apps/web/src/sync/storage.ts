@@ -34,6 +34,20 @@ export class IndexedDbQueueStore implements QueueStore {
 export async function saveSnapshot(snapshot: Snapshot): Promise<void> {
   await transact('snapshots', 'readwrite', store => store.put({ id: snapshot.user.id, snapshot }));
 }
+/** Crea lo snapshot solo se assente: non sovrascrive mai una copia completa già salvata. */
+export async function saveSnapshotIfAbsent(snapshot: Snapshot): Promise<void> {
+  // Lettura e scrittura nella stessa transazione readwrite: nessun saveSnapshot
+  // concorrente può inserirsi tra il controllo e l'inserimento.
+  await transact('snapshots', 'readwrite', store => {
+    const existing = store.get(snapshot.user.id);
+    existing.onsuccess = () => { if (!existing.result) store.put({ id: snapshot.user.id, snapshot }); };
+    return existing;
+  });
+}
+/** Al logout la copia dei dati sanitari non resta sul dispositivo. La coda resta (vedi conferma). */
+export async function deleteSnapshot(accountId: string): Promise<void> {
+  await transact('snapshots', 'readwrite', store => store.delete(accountId));
+}
 export async function readSnapshot(accountId: string): Promise<Snapshot | null> {
   const value = await transact<{ snapshot: Snapshot } | undefined>('snapshots', 'readonly', store => store.get(accountId));
   return value?.snapshot ?? null;

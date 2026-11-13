@@ -54,6 +54,13 @@ export class MemoryIdentityRepository implements IdentityRepository {
   async deleteExpiredSessions(now: number) {
     await this.change(state => { state.sessions = state.sessions.filter(session => session.expiresAt > now); });
   }
+
+  async deleteAccount(id: string) {
+    await this.change(state => {
+      state.accounts = state.accounts.filter(account => account.id !== id);
+      state.sessions = state.sessions.filter(session => session.userId !== id);
+    });
+  }
 }
 
 function readAccount(row: AccountRow | null): Account | null {
@@ -130,5 +137,10 @@ export class PostgresIdentityRepository implements IdentityRepository {
 
   async deleteExpiredSessions(now: number) {
     await this.transaction().accountSession.deleteMany({ where: { expiresAt: { lte: new Date(now) } } });
+  }
+
+  async deleteAccount(id: string) {
+    // Le sessioni sono collegate con onDelete: Cascade; deleteMany non fallisce se la riga manca.
+    await this.transaction().account.deleteMany({ where: { id } });
   }
 }

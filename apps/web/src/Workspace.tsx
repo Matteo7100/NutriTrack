@@ -29,7 +29,7 @@ const sections = {
   condivisione: { title: 'Condivisione e inviti', description: 'Gestisci l’accesso al diario e gli inviti del nutrizionista.', icon: 'privacy' },
   sincronizzazione: { title: 'Sincronizzazione', description: 'Controlla le registrazioni salvate su questo dispositivo.', icon: 'sync' },
   pazienti: { title: 'I tuoi pazienti', description: 'Invita un paziente e gestisci le associazioni attive.', icon: 'people' },
-  profilo: { title: 'Il tuo profilo', description: 'Consulta e modifica i tuoi dati personali.', icon: 'profile' },
+  profilo: { title: 'Il tuo profilo', description: 'Dati personali, password, esportazione ed eliminazione dell’account.', icon: 'profile' },
 } satisfies Record<string, { title: string; description: string; icon: IconName }>;
 
 export type Section = keyof typeof sections;
@@ -45,7 +45,7 @@ const nutritionistDescriptions: Partial<Record<Section, string>> = {
 
 export function sectionFor(hash: string, role: User['role']): Section | null {
   const section = hash.slice(1) as Section;
-  return destinations[role].includes(section) || (section === 'profilo' && role === 'PATIENT') ? section : null;
+  return destinations[role].includes(section) || section === 'profilo' ? section : null;
 }
 
 export function Brand() {

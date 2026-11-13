@@ -48,7 +48,9 @@ describe('API HTTP', () => {
 
   it('invito, accettazione, piano, diario privato/condiviso e logout', async () => {
     const n = await login('nutri@test.it'), p = await login('patient@test.it');
-    const invite = await (await call('/patients/invitations', 'POST', { email: 'patient@test.it' }, n)).json() as any;
+    expect((await call('/patients/invitations', 'POST', { email: 'patient@test.it' }, n)).status).toBe(202);
+    const [invite] = await (await call('/patients/invitations', 'GET', undefined, p)).json() as any[];
+    expect(invite.nutritionistEmail).toBe('nutri@test.it');
     expect((await call(`/patients/invitations/${invite.id}/accept`, 'POST', {}, p)).status).toBe(201);
     const content = { meals: [{ name: 'Colazione', options: [{ foods: [{ food: 'Avena', quantity: 80, unit: 'g' }] }] }] };
     const version = await (await call(`/plans/${patientId}`, 'POST', { baseVersionId: null, content }, n)).json() as any;

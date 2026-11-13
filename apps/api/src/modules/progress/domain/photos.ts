@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, Clock, Principal } from '../../../shared/contracts';
-import { observationTime, validOperationId } from './observations';
+import { minimumObservationTime, observationTime, validOperationId } from './observations';
 
 const maxPhotoBytes = 2 * 1024 * 1024;
 const maxPatientPhotos = 50;
@@ -26,6 +26,7 @@ export interface ProgressPhotoRepository {
   findByOperation(patientId: string, operationId: string): Promise<StoredProgressPhoto | null>;
   add(photo: StoredProgressPhoto): Promise<void>;
   delete(patientId: string, id: string): Promise<boolean>;
+  deleteAll(patientId: string): Promise<void>;
 }
 
 export function photoMetadata({ id, timestamp, createdAt, mimeType }: ProgressPhoto): ProgressPhoto {
@@ -85,11 +86,15 @@ export class ProgressPhotoService {
       if (existing.timestamp !== timestamp || existing.mimeType !== mimeType || !bytes.equals(existing.bytes)) throw new AppError('OperationConflict', 409, 'operationId già usato con dati diversi.');
       return photoMetadata(existing);
     }
+    if (timestamp < minimumObservationTime) throw new AppError('InvalidPhoto', 400, 'La data deve essere dal 2000 in poi.');
     if ((await this.repo.list(patientId)).length >= maxPatientPhotos) throw new AppError('PhotoLimit', 409, 'Raggiunto il limite di 50 foto. Elimina una foto prima di caricarne un’altra.');
     const photo: StoredProgressPhoto = { id: randomUUID(), patientId, operationId: input.operationId, timestamp, createdAt, mimeType, bytes };
     await this.repo.add(photo);
     return photoMetadata(photo);
   }
+
+  /** Cancellazione definitiva, usata dall'eliminazione dell'account. */
+  async erasePatient(patientId: string): Promise<void> { await this.repo.deleteAll(patientId); }
 
   async delete(actor: Principal, id: string): Promise<{ deleted: true }> {
     if (!await this.repo.delete(this.patientId(actor), id)) throw new AppError('PhotoNotFound', 404, 'Foto non trovata.');

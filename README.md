@@ -8,8 +8,8 @@ Per aggiornare un’installazione esistente, eseguire `pnpm db:generate` e `pnpm
 
 ## Documentazione per studiare e presentare
 1. [Guida al professore](docs/PROFESSOR_GUIDE.md): percorso ragionato, design pattern, invarianti e punti del codice.
-2. [Riepilogo decisioni](docs/DECISION_SUMMARY.md): tutte le scelte, con motivazioni e ADR-001..035.
-3. [Requirements](docs/requirements.md): FR-01..21, BR-01..11 e NFR-01..07.
+2. [Riepilogo decisioni](docs/DECISION_SUMMARY.md): tutte le scelte, con motivazioni e ADR-001..038.
+3. [Requirements](docs/requirements.md): FR-01..21, BR-01..11 e NFR-01..10.
 4. [Tracciabilità](docs/TRACEABILITY.md): requisito → implementazione → prova.
 5. [Use cases](docs/use-cases.md), [architettura](docs/architecture.md) e [notebook](docs/PROJECT_DESIGN_NOTEBOOK.md).
 6. [ADR](docs/adr/README.md): storia delle decisioni senza riscritture retroattive.
@@ -26,7 +26,7 @@ Per aggiornare un’installazione esistente, eseguire `pnpm db:generate` e `pnpm
 Il monolite è modulare: nessun modulo accede alla persistenza degli altri. I consumi si associano alla versione valida a consumptionTime, anche se trasmessi dopo una modifica del piano. La condivisione del diario è disabilitata inizialmente; il Patient decide se abilitarla per tutto lo storico.
 
 ## Perimetro
-Registrazione dal sito come paziente o nutrizionista. Il paziente può modificare il profilo, registrare peso in kg e circonferenze di braccio e busto in cm e gestire la propria galleria fotografica privata. Le misurazioni usano la coda offline. La galleria, le modifiche al profilo e il recupero della password richiedono la connessione. I piani si attivano alla pubblicazione e le versioni storiche sono immutabili.
+Registrazione dal sito come paziente o nutrizionista. Il paziente può modificare il profilo, registrare peso in kg e circonferenze di braccio e busto in cm e gestire la propria galleria fotografica privata. Le misurazioni usano la coda offline. La galleria, le modifiche al profilo e il recupero della password richiedono la connessione. Il paziente può correggere o eliminare pasti e misurazioni confermati. Entrambi i ruoli possono cambiare password, scaricare i propri dati ed eliminare l’account dalla sezione Profilo. I piani si attivano alla pubblicazione e le versioni storiche sono immutabili.
 
 ## Stato e verifiche
 Il 4 novembre 2026 è stato autorizzato il refactoring Command/Strategy/Observer per l'offline e Abstract Factory per lo storage, senza ampliare i requisiti. La verifica aggiornata è in TRACEABILITY; il conteggio seguente resta evidenza storica del completamento del 30 ottobre.

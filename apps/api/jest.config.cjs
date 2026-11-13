@@ -16,5 +16,5 @@ module.exports = {
   // \\ nel testo JavaScript rappresenta un singolo backslash nella regex;
   // il punto viene quindi interpretato come un punto letterale.
   // Il valore indica il trasformatore e la configurazione TypeScript da usare.
-  transform: { '^.+\\.tsx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }] },
+  transform: { '^.+\\.tsx?$': [require.resolve('ts-jest'), { tsconfig: 'tsconfig.json' }] },
 };

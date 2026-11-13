@@ -34,12 +34,27 @@ export class SyncEngine {
       if (this.observers.has(observer)) return observer.onSyncEvent(event);
     })));
   }
-  async enqueue(accountId: string, kind: Queued['kind'], payload: Record<string, unknown>): Promise<void> {
+  async enqueue(accountId: string, kind: Queued['kind'], payload: Record<string, unknown>): Promise<string> {
     const batch = this.generation;
     if (!this.active(accountId, batch)) throw new Error('Account locale non più attivo.');
     const id = this.newId();
     await this.store.save({ id, accountId, kind, payload: { ...structuredClone(payload), operationId: id }, status: 'PENDING', attempts: 0, nextAttempt: 0 });
     if (this.active(accountId, batch)) await this.notify({ type: 'queued', accountId, operationId: id, at: this.clock() });
+    return id;
+  }
+  /** Rimette in coda un'operazione respinta (es. orologio del dispositivo avanti), con lo stesso ID. */
+  async retryItem(accountId: string, operationId: string): Promise<void> {
+    const item = (await this.store.read(accountId)).find(candidate => candidate.id === operationId);
+    if (!item || item.status === 'PENDING') return;
+    await this.store.save({ ...item, status: 'PENDING', attempts: 0, nextAttempt: 0, error: undefined });
+    await this.notify({ type: 'retry-ready', accountId, operationId, at: this.clock() });
+  }
+  /** Elimina dal dispositivo un'operazione mai confermata, su scelta esplicita del Patient. */
+  async discard(accountId: string, operationId: string): Promise<void> {
+    const item = (await this.store.read(accountId)).find(candidate => candidate.id === operationId);
+    if (!item) return;
+    await this.store.remove(operationId);
+    await this.notify({ type: 'discarded', accountId, operationId, at: this.clock() });
   }
   async retryAuthentication(accountId: string): Promise<void> {
     const batch = this.generation;
@@ -68,7 +83,7 @@ export class SyncEngine {
     const batch = this.generation;
     let changed = false;
     try {
-      let session: { user: { id: string } };
+      let session: { user: { id: string }; csrfToken?: string };
       try { session = await this.receiver.request('/auth/me'); }
       catch (error) {
         if (!this.active(accountId, batch)) return false;
@@ -82,6 +97,8 @@ export class SyncEngine {
         return false;
       }
       if (!this.active(accountId, batch) || session.user.id !== accountId) return false;
+      // Un login in un'altra scheda sostituisce la sessione: si usa il token corrente.
+      this.receiver.session?.(session);
       const items = await this.store.read(accountId);
       if (!this.active(accountId, batch)) return false;
       for (const item of items) {
