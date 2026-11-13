@@ -43,3 +43,6 @@ Ogni nuova decisione deve riportare contesto, decisione, motivazione, conseguenz
 - [ADR-033 — Account autonomi, recupero via email e archivio fotografico privato](ADR-033.md)
 - [ADR-034 — Una riga PostgreSQL per account](ADR-034.md)
 - [ADR-035 — Tabelle relazionali per inviti, piani, diario e misurazioni](ADR-035.md)
+- [ADR-036 — Correzioni, password ed esportazione dei dati](ADR-036.md)
+- [ADR-037 — Resilienza, health check e notifiche](ADR-037.md)
+- [ADR-038 — Correzioni del collaudo dell’11 novembre](ADR-038.md)

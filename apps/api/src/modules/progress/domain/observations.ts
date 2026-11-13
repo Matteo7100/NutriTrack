@@ -1,5 +1,7 @@
 import { AppError } from '../../../shared/contracts';
 
+export const minimumObservationTime = Date.UTC(2000, 0, 1);
+
 export function validOperationId(input: unknown): input is string {
   return typeof input === 'string' && /^[A-Za-z0-9_-]{8,100}$/.test(input);
 }

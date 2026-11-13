@@ -158,3 +158,9 @@ footer { text-align: center; color: var(--muted); font-size: .82rem; padding: 22
   .section-tile { transition: none; }
   .section-tile:hover { transform: none; }
 }
+
+/* Azione distruttiva: eliminazione dell'account. */
+button.danger { background: #a3361f; }
+button.danger:hover { background: #873323; }
+.record-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.record-actions button { margin: 0; padding: 5px 10px; }

@@ -71,16 +71,19 @@ export class AppController {
   @HttpCode(202)
   async forgotPassword(@Req() req: Request, @Body() value: unknown) {
     const b = jsonObject(req, value, ['email']);
-    const send = this.app.sendPasswordReset;
-    if (!send) throw new AppError('PasswordResetUnavailable', 503, 'Il recupero via email non è disponibile al momento.');
-    const delivery = await this.app.persistence.run(() => this.app.identity.issuePasswordReset(b.email));
-    // Contatta il provider dopo il commit, senza esporne l'esito o la latenza al client.
-    if (delivery) {
-      void Promise.resolve().then(() => send(delivery)).catch(() => {
-        console.error('Invio email di recupero non riuscito.');
-      });
-    }
-    return { ok: true };
+    if (!this.app.sendPasswordReset) throw new AppError('PasswordResetUnavailable', 503, 'Il recupero via email non è disponibile al momento.');
+    const result = await this.app.persistence.run(() => this.app.requestPasswordReset(b.email));
+    // Invio dopo il commit, dall'outbox: esito e latenza del provider non arrivano al client.
+    this.app.dispatcher.kick();
+    return result;
+  }
+  /** Liveness: il processo risponde. Nessun accesso al database. */
+  @Get('health/live') live() { return { status: 'ok' }; }
+  /** Readiness: 200 se il servizio può operare (anche «degraded»), 503 se il database non risponde. */
+  @Get('health/ready') async ready(@Res({ passthrough: true }) res: Response) {
+    const health = await this.app.health();
+    if (health.status === 'down') res.status(503).setHeader('Retry-After', '5');
+    return health;
   }
   @Post('auth/reset-password')
   @HttpCode(200)
@@ -112,17 +115,52 @@ export class AppController {
     const b = jsonObject(req, value, ['name', 'email', 'birthDate', 'heightCm', 'currentPassword']);
     return this.authorized(req, true, user => this.app.identity.updateProfile(user, b));
   }
+  @Patch('account/password') changePassword(@Req() req: Request, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['currentPassword', 'newPassword']);
+    return this.authorized(req, true, u => this.app.identity.changePassword(u, sessionId(req), b.currentPassword, b.newPassword));
+  }
+  @Get('account/export') exportAccount(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    res.setHeader('Content-Disposition', 'attachment; filename="nutritrack-dati.json"');
+    return this.authorized(req, false, u => this.app.exportAccount(u));
+  }
+  @Post('account/delete') @HttpCode(200) async deleteAccount(@Req() req: Request, @Body() value: unknown, @Res({ passthrough: true }) res: Response) {
+    const b = jsonObject(req, value, ['password']);
+    const result = await this.authorized(req, true, u => this.app.deleteAccount(u, b.password));
+    res.clearCookie('nt_session', { path: '/' });
+    return result;
+  }
+  @Patch('diary/entries/:id') correctMeal(@Req() req: Request, @Param('id') id: string, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['consumptionTime', 'actualConsumption']);
+    return this.authorized(req, true, u => this.app.diary.correct(u, id, b));
+  }
+  @Delete('diary/entries/:id') removeMeal(@Req() req: Request, @Param('id') id: string) {
+    return this.authorized(req, true, u => this.app.diary.remove(u, id));
+  }
+  @Patch('progress/measurements/:id') correctMeasurement(@Req() req: Request, @Param('id') id: string, @Body() value: unknown) {
+    const b = jsonObject(req, value, ['value', 'timestamp']);
+    return this.authorized(req, true, u => this.app.progress.correct(u, id, b));
+  }
+  @Delete('progress/measurements/:id') removeMeasurement(@Req() req: Request, @Param('id') id: string) {
+    return this.authorized(req, true, u => this.app.progress.remove(u, id));
+  }
   @Get('patients') listPatients(@Req() req: Request) { return this.authorized(req, false, u => this.app.patients.list(u)); }
   @Get('patients/invitations') invitations(@Req() req: Request) { return this.authorized(req, false, u => this.app.patients.invitations(u)); }
-  @Post('patients/invitations') invite(@Req() req: Request, @Body() value: unknown) {
-    const b = object(value, ['email']); return this.authorized(req, true, u => this.app.patients.invite(u, b.email));
+  @Post('patients/invitations') @HttpCode(202) async invite(@Req() req: Request, @Body() value: unknown) {
+    const b = object(value, ['email']);
+    const response = await this.authorized(req, true, u => this.app.inviteQuietly(u, b.email));
+    // Come per il recupero password: avviso dopo il commit, dall'outbox.
+    this.app.dispatcher.kick();
+    return response;
   }
   @Post('patients/invitations/:id/accept') accept(@Req() req: Request, @Param('id') id: string) {
-    return this.authorized(req, true, u => this.app.patients.accept(u, id));
+    return this.authorized(req, true, u => this.app.acceptInvitation(u, id));
+  }
+  @Post('patients/invitations/:id/close') closeInvitation(@Req() req: Request, @Param('id') id: string) {
+    return this.authorized(req, true, u => this.app.patients.close(u, id));
   }
   @Get('plans/:patientId/history') history(@Req() req: Request, @Param('patientId') id: string) { return this.authorized(req, false, u => this.app.plans.history(u, id)); }
   @Post('patients/:patientId/end') end(@Req() req: Request, @Param('patientId') id: string) {
-    return this.authorized(req, true, u => this.app.patients.end(u, id));
+    return this.authorized(req, true, u => this.app.endAssociation(u, id));
   }
   @Get('plans/:patientId') async active(@Req() req: Request, @Param('patientId') id: string, @Res() res: Response) {
     const version = await this.authorized(req, false, u => this.app.plans.active(u, id));

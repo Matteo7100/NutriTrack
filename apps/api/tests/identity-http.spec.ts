@@ -36,8 +36,11 @@ describe('Registrazione, profilo e recupero account via HTTP', () => {
     return { cookie: response.headers.get('set-cookie')!.split(';')[0], csrf: data.csrfToken };
   }
 
+  let app: Application;
+  // Le email escono dall'outbox dopo la risposta: il test attende il ciclo del dispatcher.
+  const sent = () => app.dispatcher.dispatch();
   beforeAll(async () => {
-    const app = new Application(new MemoryPersistence(), () => now, async delivery => {
+    app = new Application(new MemoryPersistence(), () => now, async delivery => {
       delivered.push(delivery);
     });
     server = await createServer(app, true);
@@ -71,6 +74,7 @@ describe('Registrazione, profilo e recupero account via HTTP', () => {
     expect((await call('/profile', 'PATCH', { birthDate: '2000-02-30' }, session)).status).toBe(400);
     expect((await call('/profile', 'PATCH', { email: newEmail }, session)).status).toBe(400);
     expect((await call('/auth/forgot-password', 'POST', { email: oldEmail })).status).toBe(202);
+    await sent();
     const token = delivered.find(delivery => delivery.email === oldEmail)!.token;
 
     const updated = await call('/profile', 'PATCH', {
@@ -90,7 +94,7 @@ describe('Registrazione, profilo e recupero account via HTTP', () => {
     expect((await register(email)).status).toBe(201);
     const firstSession = await login(email);
     const secondSession = await login(email);
-    const requestReset = (address = email) => call('/auth/forgot-password', 'POST', { email: address });
+    const requestReset = async (address = email) => { const response = await call('/auth/forgot-password', 'POST', { email: address }); await sent(); return response; };
     const reset = (token: string) => call('/auth/reset-password', 'POST', { token, password: replacementPassword });
     const unknown = await requestReset('unknown@example.it');
     const known = await requestReset();

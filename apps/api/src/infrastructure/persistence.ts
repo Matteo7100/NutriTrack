@@ -21,6 +21,7 @@ import { MemoryMealPlanRepository, PostgresMealPlanRepository } from './meal-pla
 import { MemoryDiaryRepository, PostgresDiaryRepository } from './diary-repositories';
 import { MemoryProgressRepository, PostgresProgressRepository } from './progress-repositories';
 import { MemoryProgressPhotoRepository, PostgresProgressPhotoRepository } from './progress-photo-repositories';
+import { MemoryNotificationRepository, PostgresNotificationRepository } from './notification-repositories';
 
 export type { StorageFactory } from './storage-factory';
 
@@ -60,6 +61,8 @@ export class MemoryStorageFactory implements StorageFactory, UnitOfWork {
   createDiaryRepository() { return new MemoryDiaryRepository(this.repository('diary', createEmptyDiaryState)); }
   createProgressRepository() { return new MemoryProgressRepository(this.repository('progress', createEmptyProgressState)); }
   createProgressPhotoRepository() { return new MemoryProgressPhotoRepository(this.repository<StoredProgressPhoto[]>('progressPhotos', () => [])); }
+  createNotificationRepository() { return new MemoryNotificationRepository(this.repository('notifications', () => [])); }
+  async ping() { /* Il fake in memoria è sempre raggiungibile. */ }
   // Tutti i client della stessa factory condividono questo prodotto e il suo stato.
   createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
   async close() { /* Nessuna connessione nel fake. */ }
@@ -74,9 +77,10 @@ export class PostgresUnitOfWork implements UnitOfWork {
     if (this.context.getStore()) return operation();
     return this.client.$transaction(async tx => {
       // Lock prima del primo read: richieste concorrenti vedono l'ultimo commit.
+      await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(72564103)`;
       return this.context.run(tx, operation);
-    }, { isolationLevel: 'ReadCommitted', maxWait: 30000, timeout: 30000 });
+    }, { isolationLevel: 'ReadCommitted', maxWait: 5000, timeout: 15000 });
   }
 }
 
@@ -95,6 +99,8 @@ export class PostgresStorageFactory implements StorageFactory, UnitOfWork {
   createDiaryRepository() { return new PostgresDiaryRepository(() => this.currentTransaction()); }
   createProgressRepository() { return new PostgresProgressRepository(() => this.currentTransaction()); }
   createProgressPhotoRepository() { return new PostgresProgressPhotoRepository(() => this.currentTransaction().progressPhoto); }
+  createNotificationRepository() { return new PostgresNotificationRepository(() => this.currentTransaction().notificationOutboxEntry); }
+  async ping() { await this.client.$queryRaw`SELECT 1`; }
   createUnitOfWork(): UnitOfWork { return this.unitOfWork; }
   async close() { await this.client.$disconnect(); }
   run<T>(operation: () => Promise<T>): Promise<T> { return this.unitOfWork.run(operation); }

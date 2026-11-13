@@ -9,6 +9,7 @@ import type { PatientRepository } from '../modules/patient-management/public';
 import type { MealPlanRepository } from '../modules/meal-planning/public';
 import type { DiaryRepository } from '../modules/diary/public';
 import type { ProgressPhotoRepository, ProgressRepository } from '../modules/progress/public';
+import type { NotificationRepository } from '../modules/notifications/public';
 
 export interface StorageFactory {
   createIdentityRepository(): IdentityRepository;
@@ -17,6 +18,8 @@ export interface StorageFactory {
   createDiaryRepository(): DiaryRepository;
   createProgressRepository(): ProgressRepository;
   createProgressPhotoRepository(): ProgressPhotoRepository;
+  createNotificationRepository(): NotificationRepository;
   createUnitOfWork(): UnitOfWork;
+  ping(): Promise<void>;
   close(): Promise<void>;
 }

@@ -70,7 +70,7 @@ describe('Contratti applicativi NutriTrack', () => {
     const second = await f.plans.publish(f.nutritionist, f.patient.id, first.id, content(60));
     f.advance('2026-10-05T18:00:00Z');
     const entry = await f.diary.record(f.patient, { operationId: 'offline-op-1', consumptionTime: '2026-10-05T12:00:00Z', actualConsumption: 'Avena 80 g' });
-    expect(entry.mealPlanVersionId).toBe(first.id);
+    expect(entry).toMatchObject({ mealPlanVersionId: first.id });
     expect((await f.plans.getVersionAt(f.patient.id, second.validFrom))?.id).toBe(second.id);
     const history = await f.plans.history(f.patient, f.patient.id);
     expect(history[0].content).toEqual(content(80));
@@ -83,10 +83,23 @@ describe('Contratti applicativi NutriTrack', () => {
     const f = await fixture();
     const input = { operationId: 'retry-entry-1', consumptionTime: '2026-10-05T07:00:00Z', actualConsumption: 'Pizza' };
     const entry = await f.diary.record(f.patient, input);
-    expect(entry.mealPlanVersionId).toBeNull();
+    expect(entry).toMatchObject({ mealPlanVersionId: null });
     expect(await f.diary.record(f.patient, input)).toEqual(entry);
     expect(await f.diary.list(f.patient, f.patient.id)).toHaveLength(1);
     await expect(f.diary.record(f.patient, { ...input, actualConsumption: 'Altro' })).rejects.toMatchObject({ code: 'OperationConflict' });
+  });
+
+  it('conserva l’idempotenza originale dopo correzione ed eliminazione di un pasto', async () => {
+    const f = await fixture();
+    const input = { operationId: 'meal-to-remove', consumptionTime: '2026-10-05T07:00:00Z', actualConsumption: 'Pizza' };
+    const entry = await f.diary.record(f.patient, input);
+    const corrected = await f.diary.correct(f.patient, entry.id, { actualConsumption: 'Pasta' });
+    expect(await f.diary.record(f.patient, input)).toEqual(corrected);
+    await expect(f.diary.record(f.patient, { ...input, actualConsumption: 'Pasta' })).rejects.toMatchObject({ code: 'OperationConflict' });
+    await f.diary.remove(f.patient, entry.id);
+    expect(await f.diary.record(f.patient, input)).toMatchObject({ id: entry.id, deletedAt: expect.any(Number) });
+    await expect(f.diary.record(f.patient, { ...input, actualConsumption: 'Altro' })).rejects.toMatchObject({ code: 'OperationConflict' });
+    expect(await f.diary.list(f.patient, f.patient.id)).toEqual([]);
   });
 
   it('diario inizialmente privato, condivisione storico e revoca senza cancellazione', async () => {
@@ -120,6 +133,17 @@ describe('Contratti applicativi NutriTrack', () => {
     expect(await f.progress.list(f.nutritionist, f.patient.id)).toHaveLength(1);
     await expect(f.progress.list(f.other, f.patient.id)).rejects.toMatchObject({ code: 'PatientNotAssigned' });
     await expect(f.progress.record(f.patient, { ...input, value: 79 })).rejects.toMatchObject({ code: 'OperationConflict' });
+  });
+
+  it('non ricrea una misurazione eliminata quando arriva un retry offline', async () => {
+    const f = await fixture();
+    const input = { operationId: 'measurement-removal', timestamp: '2026-10-05T07:00:00Z', type: 'WEIGHT' as const, unit: 'KG' as const, value: 78.2 };
+    const measurement = await f.progress.record(f.patient, input);
+    await f.progress.correct(f.patient, measurement.id, { value: 79.5 });
+    expect(await f.progress.record(f.patient, input)).toMatchObject({ value: 79.5 });
+    await f.progress.remove(f.patient, measurement.id);
+    expect(await f.progress.record(f.patient, input)).toMatchObject({ id: measurement.id, deletedAt: expect.any(Number) });
+    expect(await f.progress.list(f.patient, f.patient.id)).toEqual([]);
   });
 
   it('rifiuta date senza offset, date impossibili, futuro e quantità invalide', async () => {

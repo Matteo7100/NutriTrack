@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import type { MealPlanRepository, MealPlanVersion, MealPlanningState } from '../modules/meal-planning/public';
+import type { MealPlanRepository, MealPlanVersion, MealPlanningState, StoredPlanPeriod } from '../modules/meal-planning/public';
 import { AppError, type Repository } from '../shared/contracts';
 
 type Period = Pick<MealPlanVersion, 'id' | 'patientId' | 'validFrom' | 'validUntil'>;
@@ -11,10 +11,11 @@ function staleVersion() {
 export class MemoryMealPlanRepository implements MealPlanRepository {
   constructor(private readonly repository: Repository<MealPlanningState>) {}
 
-  async listPeriods(patientId: string): Promise<Period[]> {
+  async listPeriods(patientId: string): Promise<StoredPlanPeriod[]> {
     const { versions } = await this.repository.get();
     return versions.filter(version => version.patientId === patientId)
-      .map(({ id, validFrom, validUntil }) => ({ id, patientId, validFrom, validUntil }));
+      .map(({ id, validFrom, validUntil, mealPlanId, versionNumber, createdAt, createdBy }) =>
+        ({ id, patientId, validFrom, validUntil, mealPlanId, versionNumber, createdAt, createdBy }));
   }
 
   async findVersion(id: string) {
@@ -22,9 +23,17 @@ export class MemoryMealPlanRepository implements MealPlanRepository {
     return versions.find(version => version.id === id) ?? null;
   }
 
-  async listVersions(patientId: string) {
+  async listVersions(patientId: string, visible?: { from: number; author: string }) {
     const { versions } = await this.repository.get();
-    return versions.filter(version => version.patientId === patientId).sort((a, b) => a.versionNumber - b.versionNumber);
+    return versions.filter(version => version.patientId === patientId &&
+      (!visible || (version.createdAt >= visible.from && version.createdBy === visible.author)))
+      .sort((a, b) => a.versionNumber - b.versionNumber);
+  }
+
+  async listAuthoredVersions(nutritionistId: string) {
+    const { versions } = await this.repository.get();
+    return versions.filter(version => version.createdBy === nutritionistId)
+      .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   }
 
   async savePublication(closedVersion: Period | null, version: MealPlanVersion) {
@@ -35,6 +44,20 @@ export class MemoryMealPlanRepository implements MealPlanRepository {
       previous.validUntil = closedVersion.validUntil;
     }
     state.versions.push(version);
+    await this.repository.save(state);
+  }
+
+  async closeVersion(versionId: string, validUntil: number) {
+    const state = await this.repository.get();
+    const version = state.versions.find(candidate => candidate.id === versionId && candidate.validUntil === null);
+    if (!version) throw staleVersion();
+    version.validUntil = validUntil;
+    await this.repository.save(state);
+  }
+
+  async erasePatient(patientId: string) {
+    const state = await this.repository.get();
+    state.versions = state.versions.filter(version => version.patientId !== patientId);
     await this.repository.save(state);
   }
 }
@@ -73,15 +96,15 @@ function changeValue(value: unknown): Prisma.InputJsonValue | typeof Prisma.Json
 }
 
 export class PostgresMealPlanRepository implements MealPlanRepository {
-  constructor(private readonly transaction: () => Pick<Prisma.TransactionClient, 'mealPlanVersion'>) {}
+  constructor(private readonly transaction: () => Pick<Prisma.TransactionClient, 'mealPlan' | 'mealPlanVersion'>) {}
 
-  async listPeriods(patientId: string): Promise<Period[]> {
+  async listPeriods(patientId: string): Promise<StoredPlanPeriod[]> {
     const periods = await this.transaction().mealPlanVersion.findMany({
       where: { plan: { patientId } },
-      select: { id: true, validFrom: true, validUntil: true },
+      select: { id: true, validFrom: true, validUntil: true, mealPlanId: true, versionNumber: true, createdAt: true, createdBy: true },
     });
-    return periods.map(({ id, validFrom, validUntil }) => ({
-      id, patientId, validFrom: validFrom.getTime(), validUntil: validUntil?.getTime() ?? null,
+    return periods.map(({ validFrom, validUntil, createdAt, ...period }) => ({
+      ...period, patientId, validFrom: validFrom.getTime(), validUntil: validUntil?.getTime() ?? null, createdAt: createdAt.getTime(),
     }));
   }
 
@@ -90,22 +113,28 @@ export class PostgresMealPlanRepository implements MealPlanRepository {
     return row ? readVersion(row) : null;
   }
 
-  async listVersions(patientId: string) {
+  async listVersions(patientId: string, visible?: { from: number; author: string }) {
     const rows = await this.transaction().mealPlanVersion.findMany({
-      where: { plan: { patientId } }, orderBy: { versionNumber: 'asc' }, include: versionContent,
+      where: {
+        plan: { patientId },
+        ...(visible && { createdAt: { gte: new Date(visible.from) }, createdBy: visible.author }),
+      },
+      orderBy: { versionNumber: 'asc' },
+      include: versionContent,
+    });
+    return rows.map(readVersion);
+  }
+
+  async listAuthoredVersions(nutritionistId: string) {
+    const rows = await this.transaction().mealPlanVersion.findMany({
+      where: { createdBy: nutritionistId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], include: versionContent,
     });
     return rows.map(readVersion);
   }
 
   async savePublication(closedVersion: Period | null, version: MealPlanVersion) {
     const { mealPlanVersion } = this.transaction();
-    if (closedVersion) {
-      const { count } = await mealPlanVersion.updateMany({
-        where: { id: closedVersion.id, validUntil: null },
-        data: { validUntil: new Date(version.validFrom) },
-      });
-      if (count !== 1) throw staleVersion();
-    }
+    if (closedVersion) await this.closeVersion(closedVersion.id, version.validFrom);
     await mealPlanVersion.create({ data: {
       id: version.id, versionNumber: version.versionNumber, createdBy: version.createdBy,
       createdAt: new Date(version.createdAt), validFrom: new Date(version.validFrom),
@@ -122,5 +151,22 @@ export class PostgresMealPlanRepository implements MealPlanRepository {
         position, path: change.path, before: changeValue(change.before), after: changeValue(change.after),
       })) },
     } });
+  }
+
+  async closeVersion(versionId: string, validUntil: number) {
+    const { count } = await this.transaction().mealPlanVersion.updateMany({
+      where: { id: versionId, validUntil: null },
+      data: { validUntil: new Date(validUntil) },
+    });
+    if (count !== 1) throw staleVersion();
+  }
+
+  async erasePatient(patientId: string) {
+    const { mealPlan, mealPlanVersion } = this.transaction();
+    const where = { plan: { patientId } };
+    // La chiave esterna della versione precedente usa ON DELETE RESTRICT.
+    await mealPlanVersion.updateMany({ where, data: { parentVersionId: null } });
+    await mealPlanVersion.deleteMany({ where });
+    await mealPlan.deleteMany({ where: { patientId } });
   }
 }

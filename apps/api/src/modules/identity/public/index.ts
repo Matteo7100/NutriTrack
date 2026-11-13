@@ -37,6 +37,8 @@ export interface IdentityRepository {
   deleteSession(id: string): Promise<void>;
   deleteSessionsForUser(userId: string): Promise<void>;
   deleteExpiredSessions(now: number): Promise<void>;
+  /** Elimina l'account e le sue sessioni. */
+  deleteAccount(id: string): Promise<void>;
 }
 export interface IdentityState { accounts: Account[]; sessions: Session[] }
 export const createEmptyIdentityState = (): IdentityState => ({ accounts: [], sessions: [] });
@@ -157,7 +159,7 @@ export class IdentityService {
     return profile(account);
   }
 
-  async issuePasswordReset(email: unknown): Promise<PasswordResetDelivery | null> {
+  async issuePasswordReset(email: unknown): Promise<(PasswordResetDelivery & { accountId: string }) | null> {
     const normalized = normalizedEmail(email);
     const account = await this.repo.findAccountByEmail(normalized);
     const now = this.clock();
@@ -165,7 +167,14 @@ export class IdentityService {
     const token = randomBytes(32).toString('hex');
     account.passwordReset = { digest: resetDigest(token), issuedAt: now, expiresAt: now + resetLifetime };
     await this.repo.updateAccount(account);
-    return { email: account.email, token };
+    return { accountId: account.id, email: account.email, token };
+  }
+
+  /** Il dispatcher verifica che il link corrisponda ancora al profilo attuale. */
+  async isPasswordResetCurrent(accountId: string, email: string, token: string): Promise<boolean> {
+    const account = await this.repo.findAccountById(accountId);
+    return !!account?.passwordReset && account.email === email &&
+      account.passwordReset.digest === resetDigest(token) && account.passwordReset.expiresAt > this.clock();
   }
 
   async resetPassword(token: unknown, password: unknown): Promise<void> {
@@ -178,6 +187,43 @@ export class IdentityService {
     delete account.passwordReset;
     await this.repo.updateAccount(account);
     await this.repo.deleteSessionsForUser(account.id);
+  }
+
+  /** Cambio password autenticato: la sessione corrente resta, le altre vengono revocate. */
+  async changePassword(actor: Principal, currentSessionId: string, currentPassword: unknown, newPassword: unknown): Promise<{ ok: true }> {
+    const account = await this.repo.findAccountById(actor.id);
+    if (!account) throw new AppError('AuthenticationError', 401, 'Sessione assente o scaduta: accedere di nuovo.');
+    if (typeof currentPassword !== 'string' || currentPassword.length > 128 || !matchesPassword(currentPassword, account)) {
+      throw new AppError('CurrentPasswordRequired', 400, 'La password attuale non è corretta.');
+    }
+    if (!validPassword(newPassword)) throw new AppError('ValidationError', 400, 'La nuova password deve contenere da 10 a 128 caratteri.');
+    const current = await this.repo.findSession(currentSessionId);
+    Object.assign(account, credentials(newPassword));
+    delete account.passwordReset;
+    await this.repo.updateAccount(account);
+    await this.repo.deleteSessionsForUser(account.id);
+    if (current && current.userId === account.id) await this.repo.createSession(current);
+    return { ok: true };
+  }
+
+  /** Conferma della password prima di operazioni irreversibili (eliminazione dell'account). */
+  async verifyPassword(actor: Principal, password: unknown): Promise<void> {
+    const account = await this.repo.findAccountById(actor.id);
+    if (typeof password !== 'string' || password.length > 128 || !matchesPassword(password, account)) {
+      throw new AppError('CurrentPasswordRequired', 400, 'La password non è corretta.');
+    }
+  }
+
+  async deleteAccount(actor: Principal): Promise<void> {
+    await this.repo.deleteSessionsForUser(actor.id);
+    await this.repo.deleteAccount(actor.id);
+  }
+
+  /** Dati personali dell'account, per l'esportazione (senza credenziali). */
+  async exportAccount(actor: Principal) {
+    const account = await this.repo.findAccountById(actor.id);
+    if (!account) throw new AppError('AuthenticationError', 401, 'Sessione assente o scaduta: accedere di nuovo.');
+    return { ...principal(account), birthDate: account.birthDate ?? null, heightCm: account.heightCm ?? null };
   }
 
   async authenticate(sessionId: string) {

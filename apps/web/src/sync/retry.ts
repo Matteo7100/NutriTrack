@@ -32,6 +32,9 @@ export class RetryContext {
   select(error: unknown): RetryStrategy {
     if (error instanceof ApiError) {
       if (error.status === 401) return this.policies.waitForLogin;
+      // Token CSRF di una sessione sostituita (login in un'altra scheda): il flush
+      // successivo rilegge il token da /auth/me, quindi è un errore transitorio.
+      if (error.status === 403 && error.code === 'CsrfError') return this.policies.backoff;
       if (error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) return this.policies.stop;
     }
     return this.policies.backoff;

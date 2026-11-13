@@ -20,8 +20,12 @@ export interface PatientRepository {
   pendingInvitations(actor: Principal): Promise<Invitation[]>;
   pendingInvitation(lookup: PendingInvitationLookup): Promise<Invitation | null>;
   createInvitation(invitation: Invitation): Promise<void>;
+  closeInvitation(actor: Principal, invitationId: string): Promise<boolean>;
   acceptInvitation(invitationId: string, assignment: Assignment): Promise<void>;
   endAssignment(assignmentId: string, endedAt: number): Promise<void>;
+  relations(actor: Principal): Promise<PatientState>;
+  erasePatientRelations(patientId: string): Promise<void>;
+  closeNutritionistRelations(nutritionistId: string, endedAt: number): Promise<string[]>;
 }
 
 export class PatientService {
@@ -41,15 +45,30 @@ export class PatientService {
     return Promise.all(items.map(async i => {
       const nutritionist = await this.identity.getUser(i.nutritionistId);
       const patient = await this.identity.getUser(i.patientId);
-      return { ...i, patient, nutritionist, patientName: patient.name, nutritionistName: nutritionist.name };
+      return {
+        ...i, patient, nutritionist,
+        patientName: patient.name, nutritionistName: nutritionist.name,
+        patientEmail: patient.email, nutritionistEmail: nutritionist.email,
+      };
     }));
   }
 
+  async close(actor: Principal, inviteId: string) {
+    if (!await this.repo.closeInvitation(actor, inviteId)) {
+      throw new AppError('InvitationNotFound', 404, 'Invito non trovato.');
+    }
+    return { closed: true };
+  }
+
+  async isPendingInvitation(inviteId: string, patientId: string, nutritionistId: string): Promise<boolean> {
+    return (await this.repo.pendingInvitation({ id: inviteId, patientId }))?.nutritionistId === nutritionistId;
+  }
+
   async invite(actor: Principal, email: string) {
-    if (actor.role !== 'NUTRITIONIST') throw new AppError('AuthorizationError', 403, 'Solo il Nutritionist può invitare.');
+    if (actor.role !== 'NUTRITIONIST') throw new AppError('AuthorizationError', 403, 'Solo il nutrizionista può invitare.');
     const patient = await this.identity.findUserByEmail(email);
-    if (!patient || patient.role !== 'PATIENT') throw new AppError('PatientNotFound', 404, 'Patient non trovato.');
-    if (await this.repo.activeAssignment(patient.id)) throw new AppError('AssociationConflict', 409, 'Patient già associato: chiudere prima la relazione corrente.');
+    if (!patient || patient.role !== 'PATIENT') throw new AppError('PatientNotFound', 404, 'Paziente non trovato.');
+    if (await this.repo.activeAssignment(patient.id)) throw new AppError('AssociationConflict', 409, 'Paziente già associato: chiudere prima la relazione corrente.');
     const existing = await this.repo.pendingInvitation({ patientId: patient.id, nutritionistId: actor.id });
     if (existing) return existing;
     const invite: Invitation = { id: randomUUID(), patientId: patient.id, nutritionistId: actor.id, createdAt: this.clock(), status: 'PENDING' };
@@ -58,10 +77,10 @@ export class PatientService {
   }
 
   async accept(actor: Principal, inviteId: string) {
-    if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Solo il Patient può accettare.');
+    if (actor.role !== 'PATIENT') throw new AppError('AuthorizationError', 403, 'Solo il paziente può accettare.');
     const invite = await this.repo.pendingInvitation({ id: inviteId, patientId: actor.id });
     if (!invite) throw new AppError('InvitationNotFound', 404, 'Invito non trovato.');
-    if (await this.repo.activeAssignment(actor.id)) throw new AppError('AssociationConflict', 409, 'Esiste già un Nutritionist attivo.');
+    if (await this.repo.activeAssignment(actor.id)) throw new AppError('AssociationConflict', 409, 'Hai già un nutrizionista associato.');
     const assignment: Assignment = { id: randomUUID(), patientId: actor.id, nutritionistId: invite.nutritionistId, createdAt: this.clock(), endedAt: null };
     await this.repo.acceptInvitation(inviteId, assignment);
     return assignment;
@@ -85,8 +104,25 @@ export class PatientService {
   }
 
   async assertAccess(actor: Principal, patientId: string): Promise<void> {
-    if (actor.role === 'PATIENT' && actor.id === patientId) return;
-    if (actor.role === 'NUTRITIONIST' && await this.isAssigned(actor.id, patientId)) return;
-    throw new AppError('PatientNotAssigned', 403, 'Accesso ai dati del Patient non consentito.');
+    await this.visibleFrom(actor, patientId);
+  }
+
+  async visibleFrom(actor: Principal, patientId: string): Promise<number | null> {
+    if (actor.role === 'PATIENT' && actor.id === patientId) return null;
+    if (actor.role === 'NUTRITIONIST') {
+      const assignment = await this.repo.activeAssignment(patientId);
+      if (assignment?.nutritionistId === actor.id) return assignment.createdAt;
+    }
+    throw new AppError('PatientNotAssigned', 403, 'Accesso ai dati del paziente non consentito.');
+  }
+
+  async exportRelations(actor: Principal) {
+    return this.repo.relations(actor);
+  }
+
+  async eraseAccount(actor: Principal): Promise<string[]> {
+    if (actor.role === 'NUTRITIONIST') return this.repo.closeNutritionistRelations(actor.id, this.clock());
+    await this.repo.erasePatientRelations(actor.id);
+    return [];
   }
 }
