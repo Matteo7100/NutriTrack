@@ -18,6 +18,9 @@ import { ProgressPhotoService, ProgressService } from '../modules/progress/publi
 
 const invitationNoticeLifetimeMs = 24 * 60 * 60_000;
 
+/** Attesa massima del controllo del database nella readiness (NFR-09). */
+const healthTimeoutMs = 1000;
+
 export class Application {
   readonly identity: IdentityService;
   readonly patients: PatientService;
@@ -28,7 +31,8 @@ export class Application {
   readonly persistence: UnitOfWork & { close(): Promise<void> };
   readonly notifications: NotificationOutbox;
   readonly dispatcher: NotificationDispatcher;
-  private healthPing?: Promise<void>;
+  /** Ping in corso, condiviso dalle readiness concorrenti; mai riusato oltre il suo timeout. */
+  private healthPing?: { promise: Promise<void>; startedAt: number };
   constructor(private readonly storage: StorageFactory, private readonly clock: Clock = Date.now, readonly sendPasswordReset?: PasswordResetSender,
     readonly notifyInvitation?: InvitationNotifier, readonly logger: Logger = silentLogger) {
     const unitOfWork = storage.createUnitOfWork();
@@ -88,9 +92,15 @@ export class Application {
     let database: 'ok' | 'down' = 'ok';
     try {
       let timer: NodeJS.Timeout | undefined;
-      // Le richieste concorrenti condividono il ping, anche se una risposta è già scaduta.
-      this.healthPing ??= this.storage.ping().finally(() => { this.healthPing = undefined; });
-      await Promise.race([this.healthPing, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 1000); })])
+      // Le richieste concorrenti condividono il ping, ma solo entro il suo timeout:
+      // un ping rimasto bloccato (database lento poi tornato) non deve far risultare
+      // «down» anche i controlli successivi. Al più un ping nuovo al secondo.
+      if (!this.healthPing || started - this.healthPing.startedAt >= healthTimeoutMs) {
+        const entry = { startedAt: started, promise: Promise.resolve() };
+        entry.promise = this.storage.ping().finally(() => { if (this.healthPing === entry) this.healthPing = undefined; });
+        this.healthPing = entry;
+      }
+      await Promise.race([this.healthPing.promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), healthTimeoutMs); })])
         .finally(() => clearTimeout(timer));
     } catch { database = 'down'; }
     const mail = this.dispatcher.status();
