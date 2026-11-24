@@ -100,6 +100,22 @@ describe('Resilienza', () => {
     storage.hang = false;
   });
 
+  it('dopo un ping bloccato il ready torna 200 appena il database risponde, senza attendere il ping vecchio', async () => {
+    // Il ping del test precedente è ancora in attesa (3 s): non deve essere riusato.
+    const ready = await call('/health/ready');
+    expect(ready.status).toBe(200);
+    expect(await json(ready)).toMatchObject({ checks: { database: { status: 'ok' } } });
+  });
+
+  it('readiness concorrenti condividono un solo ping', async () => {
+    // Database lento ma sano (200 ms): le tre richieste arrivano mentre il primo ping è in corso.
+    const ping = jest.spyOn(storage, 'ping').mockImplementation(() => new Promise(resolve => setTimeout(resolve, 200)));
+    const answers = await Promise.all([call('/health/ready'), call('/health/ready'), call('/health/ready')]);
+    expect(answers.map(response => response.status)).toEqual([200, 200, 200]);
+    expect(ping).toHaveBeenCalledTimes(1);
+    ping.mockRestore();
+  });
+
   it('provider email giù: l’invito riesce, la notifica resta in outbox e parte quando il provider torna', async () => {
     const rossi = await login('rossi@test.it');
     providerDown = true;
